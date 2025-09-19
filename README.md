@@ -606,6 +606,69 @@ bun run dev
 # Los endpoints de auth en http://localhost:8080/auth/*
 ```
 
+## Convenciones de Nomenclatura de Archivos
+
+Este proyecto sigue convenciones específicas para mantener consistencia y claridad en la estructura de archivos:
+
+### Reglas de Nomenclatura
+
+#### 1. Archivos de Módulos (Module Components)
+Para archivos que pertenecen a un módulo específico, usa **notación con punto**:
+
+```
+module.function.ts
+```
+
+**Ejemplos:**
+- `health.routes.ts` - Rutas del módulo health
+- `health.controller.ts` - Controlador del módulo health
+- `storage.service.ts` - Servicio del módulo storage
+- `auth.routes.ts` - Rutas del módulo auth
+
+#### 2. Archivos de Tipo/Propósito (Type/Role Files)
+Para archivos que describen su tipo o propósito, usa **kebab-case (guiones)**:
+
+```
+type-purpose.ts
+```
+
+**Ejemplos:**
+- `auth-middleware.ts` - Middleware de autenticación
+- `s3-adapter.ts` - Adaptador para S3
+- `multer-adapter.ts` - Adaptador para Multer
+- `storage-interface.ts` - Interface de almacenamiento
+
+### Estructura de Directorios
+
+```
+src/
+├── middleware/
+│   ├── auth-middleware.ts      # Tipo de archivo: middleware
+│   └── cors-middleware.ts      # Tipo de archivo: middleware
+├── modules/
+│   ├── health/
+│   │   ├── health.routes.ts    # Componente de módulo
+│   │   ├── health.controller.ts # Componente de módulo
+│   │   └── health.service.ts   # Componente de módulo
+│   ├── storage/
+│   │   ├── storage.routes.ts   # Componente de módulo
+│   │   ├── storage.controller.ts # Componente de módulo
+│   │   ├── storage.service.ts  # Componente de módulo
+│   │   └── adapters/
+│   │       ├── s3-adapter.ts   # Tipo de archivo: adapter
+│   │       └── multer-adapter.ts # Tipo de archivo: adapter
+│   └── auth/
+│       └── auth.routes.ts      # Componente de módulo
+```
+
+### Rationale
+
+1. **Separación Clara**: La notación con punto separa claramente el módulo de su función
+2. **Agrupación Natural**: Los archivos se agrupan automáticamente en exploradores de archivos
+3. **Escalabilidad**: Funciona bien tanto para nombres simples como complejos
+4. **Consistencia**: Diferentes tipos de archivos siguen patrones diferentes pero consistentes
+5. **Frameworks Modernos**: Sigue convenciones adoptadas por NestJS, Angular y otros frameworks TypeScript
+
 ## Ventajas de Better Auth + Expo
 
 ### ¿Por qué esta combinación es perfecta?

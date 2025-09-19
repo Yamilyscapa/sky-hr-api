@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import { errorResponse, successResponse, ErrorCodes } from "../../core/http";
-import { createStorageService } from "./service";
+import { createStorageService } from "./storage.service";
 import { createMulterAdapter } from "./adapters/multer-adapter";
 import { createS3Adapter } from "./adapters/s3-adapter";
 

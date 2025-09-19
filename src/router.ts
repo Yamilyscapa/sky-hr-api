@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import healthRouter from "./modules/health/health-route";
-import authRouter from "./modules/auth/routes";
-import storageRouter from "./modules/storage/routes";
+import healthRouter from "./modules/health/health.routes";
+import authRouter from "./modules/auth/auth.routes";
+import storageRouter from "./modules/storage/storage.routes";
 
 const router = new Hono();
 

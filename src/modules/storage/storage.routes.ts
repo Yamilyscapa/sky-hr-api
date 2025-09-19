@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { uploadUserFace } from "./controller";
+import { uploadUserFace } from "./storage.controller";
 
 const storageRouter = new Hono();
 
