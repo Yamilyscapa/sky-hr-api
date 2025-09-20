@@ -12,7 +12,7 @@ export interface AuthContext {
       id: string;
       email: string;
       name: string;
-      user_face_url?: string | null;
+      user_face_url?: string[] | null;
       image?: string | null;
       emailVerified: boolean;
       createdAt: Date;

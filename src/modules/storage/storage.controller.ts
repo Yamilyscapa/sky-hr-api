@@ -3,6 +3,7 @@ import { errorResponse, successResponse, ErrorCodes } from "../../core/http";
 import { createStorageService } from "./storage.service";
 import { createMulterAdapter } from "./adapters/multer-adapter";
 import { createS3Adapter } from "./adapters/s3-adapter";
+import { storagePolicies } from "./storage.policies";
 
 // Use multer or s3 adapter, depending on the environment
 const storageAdapter = process.env.NODE_ENV === "development" || !process.env.NODE_ENV ? createMulterAdapter() : createS3Adapter();
@@ -21,8 +22,14 @@ const getPlaceholderUser = () => ({
 
 export const uploadUserFace = async (c: Context) => {
   const { file } = await c.req.parseBody();
+  const policies = storagePolicies();
+
   const user = getPlaceholderUser(); // placeholder for user;
 
+  if (policies.imagesLimit(user.user_face_url)) {
+    return errorResponse(c, "Maximum number of images exceeded", ErrorCodes.BAD_REQUEST);
+  }
+  
   if (!file) {
     return errorResponse(c, "No file provided", ErrorCodes.BAD_REQUEST);
   }

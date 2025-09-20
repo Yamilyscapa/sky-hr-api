@@ -49,7 +49,7 @@ export const auth = betterAuth({
   user: {
     additionalFields: {
       user_face_url: {
-        type: "string",
+        type: "string[]",
         required: false,
       },
     },

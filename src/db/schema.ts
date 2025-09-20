@@ -35,6 +35,8 @@ export const organization = pgTable("organization", {
   subscription_id: uuid("subscription_id").references(() => subscription.id),
   is_active: boolean("is_active").notNull().default(true),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
+  // Biometrics integration
+  rekognition_collection_id: text("rekognition_collection_id").unique(),
 });
 
 
@@ -49,7 +51,7 @@ export const users = pgTable("users", {
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
   // Custom fields for your application
-  user_face_url: text("user_face_url"),
+  user_face_url: text("user_face_url").array(),
   deleted_at: timestamp("deleted_at"),
 });
 

@@ -669,6 +669,78 @@ src/
 4. **Consistencia**: Diferentes tipos de archivos siguen patrones diferentes pero consistentes
 5. **Frameworks Modernos**: Sigue convenciones adoptadas por NestJS, Angular y otros frameworks TypeScript
 
+## Integración de Biometría con Organizaciones
+
+### Resumen
+El sistema implementa una integración automática entre las organizaciones de Better Auth y las colecciones de AWS Rekognition, proporcionando aislamiento completo de datos biométricos por organización.
+
+### Características Principales
+
+1. **Colecciones Automáticas**: Cada organización obtiene su propia colección de Rekognition
+2. **Aislamiento de Datos**: Los datos biométricos están completamente separados por organización
+3. **Gestión Automática**: Las colecciones se crean y eliminan automáticamente con las organizaciones
+4. **APIs Específicas**: Endpoints especializados para operaciones biométricas por organización
+
+### Endpoints de Organizaciones
+
+#### Webhooks (Para automatización interna)
+```
+POST /organizations/webhook/created
+POST /organizations/webhook/deleted
+```
+
+#### Gestión de Organizaciones
+```
+GET /organizations/:organizationId
+POST /organizations/:organizationId/ensure-collection
+```
+
+### Endpoints de Biometría por Organización
+
+#### Indexar Rostro para Organización
+```
+POST /biometrics/organization/index-face
+Content-Type: multipart/form-data
+
+- image: File (imagen del rostro)
+- externalImageId: string (ID único para el rostro)
+- organizationId: string (ID de la organización)
+```
+
+#### Buscar Rostros en Organización
+```
+POST /biometrics/organization/search-faces
+Content-Type: multipart/form-data
+
+- image: File (imagen para buscar)
+- organizationId: string (ID de la organización)
+```
+
+### Flujo de Trabajo
+
+1. **Creación de Organización**: 
+   - Usuario crea organización via Better Auth
+   - Sistema automáticamente crea colección de Rekognition
+   - Se almacena el ID de colección en la base de datos
+
+2. **Operaciones Biométricas**:
+   - Usar endpoints específicos de organización
+   - Sistema automáticamente selecciona la colección correcta
+   - Búsquedas limitadas a la organización correspondiente
+
+3. **Eliminación de Organización**:
+   - Eliminar organización via Better Auth
+   - Sistema automáticamente elimina la colección de Rekognition
+   - Limpieza completa de datos biométricos
+
+### Ventajas
+
+- ✅ **Aislamiento Completo**: Datos biométricos nunca se mezclan entre organizaciones
+- ✅ **Mejor Rendimiento**: Búsquedas más rápidas en colecciones pequeñas y específicas
+- ✅ **Cumplimiento**: Mejor control de datos para regulaciones de privacidad
+- ✅ **Escalabilidad**: Cada organización puede crecer independientemente
+- ✅ **Automatización**: Gestión transparente del ciclo de vida de colecciones
+
 ## Ventajas de Better Auth + Expo
 
 ### ¿Por qué esta combinación es perfecta?
