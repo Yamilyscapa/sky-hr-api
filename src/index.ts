@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { logger } from "hono/logger";
 import router from "./router";
 import { serveStatic } from "hono/serve-static";
+import { cors } from "hono/cors";
 
 // ENV
 const PORT = process.env.PORT ?? 8080;
@@ -9,9 +10,18 @@ const PORT = process.env.PORT ?? 8080;
 // APP
 const app = new Hono();
 
+// TRUSTED ORIGINS
+const TRUSTED_ORIGINS: string[] = process.env.TRUSTED_ORIGINS?.split(",") || [];
+  
 // Middleware
 app.use(logger());
-
+app.use(cors({
+  origin: TRUSTED_ORIGINS,
+  allowHeaders: ["Authorization", "Content-Type", "Cookie"],
+  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  credentials: true,
+}));
+  
 // Router
 app.route("/", router);
 

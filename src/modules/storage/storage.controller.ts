@@ -20,7 +20,7 @@ const getPlaceholderUser = () => ({
   updatedAt: new Date(),
 });
 
-export const uploadUserFace = async (c: Context) => {
+export const registerBiometric = async (c: Context) => {
   const { file } = await c.req.parseBody();
   const policies = storagePolicies();
 
@@ -29,19 +29,20 @@ export const uploadUserFace = async (c: Context) => {
   if (policies.imagesLimit(user.user_face_url)) {
     return errorResponse(c, "Maximum number of images exceeded", ErrorCodes.BAD_REQUEST);
   }
-  
+
   if (!file) {
     return errorResponse(c, "No file provided", ErrorCodes.BAD_REQUEST);
   }
 
   try {
     const result = await storageService.uploadUserFace(
-      file as File, 
-      user.id, 
-      user.user_face_url.length
+      file as File,
+      user.id,
+      user.user_face_url.length,
+      "user-face"
     );
-    
-    return successResponse(c, { 
+
+    return successResponse(c, {
       message: "File uploaded successfully",
       url: result.url,
       fileName: result.fileName
@@ -49,5 +50,26 @@ export const uploadUserFace = async (c: Context) => {
   } catch (error) {
     console.error('File upload failed:', error);
     return errorResponse(c, "File upload failed", ErrorCodes.INTERNAL_SERVER_ERROR);
+  }
+};
+
+export const uploadQr = async (c: Context) => {
+  const { file, location_id } = await c.req.parseBody<{ file: File, location_id: string }>();
+  const policies = storagePolicies();
+
+  if (!file || !location_id) {
+    return errorResponse(c, "No file provided", ErrorCodes.BAD_REQUEST);
+  }
+
+  try {
+    const result = await storageService.uploadQr(file, "qr-code", location_id);
+    return successResponse(c, {
+      message: "QR uploaded successfully",
+      url: result.url,
+      fileName: result.fileName,
+    });
+  } catch (error) {
+    console.error('QR upload failed:', error);
+    return errorResponse(c, "QR upload failed", ErrorCodes.INTERNAL_SERVER_ERROR);
   }
 };

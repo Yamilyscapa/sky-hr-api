@@ -42,9 +42,23 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
+  cookies: {
+    secure: true,              // required for SameSite=None
+    sameSite: 'none',        
+    essionToken: {
+      path: '/',            // avoid path lock-in
+      httpOnly: true,
+      // Cross-site (different TLDs):
+      sameSite: 'none',
+      secure: true,
+      // If sharing subdomains instead:
+      // domain: '.example.com',
+      // sameSite: 'lax',
+    }  // cross-site cookie
+  },
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 días
-    updateAge: 60 * 60 * 24, // Actualizar cada día
+    updateAge: 60 * 60 * 24, // Actualizar cada día,
   },
   user: {
     additionalFields: {
@@ -61,6 +75,6 @@ export const auth = betterAuth({
     "exp://", // Expo development scheme
     "exp+skyhr://", // Expo development scheme with custom
   ],
-  secret: BETTER_AUTH_SECRET!,
+  secret: BETTER_AUTH_SECRET,
   baseURL: BETTER_AUTH_URL || "http://localhost:8080",
 });

@@ -210,6 +210,31 @@ export const indexFaceForOrganization = async (
 };
 
 /**
+ * Index a face for a specific organization with automatic collection creation
+ */
+export const indexFaceForOrganizationWithEnsure = async (
+  imageBuffer: Buffer,
+  externalImageId: string,
+  organizationId: string
+): Promise<FaceIndexResult> => {
+  const { ensureOrganizationCollection } = await import("../organizations/organizations.service");
+  
+  try {
+    // Ensure the organization has a collection (create if missing)
+    const collectionId = await ensureOrganizationCollection(organizationId);
+    
+    if (!collectionId) {
+      throw new Error(`Failed to create or find Rekognition collection for organization: ${organizationId}`);
+    }
+    
+    return await indexFace(imageBuffer, externalImageId, collectionId);
+  } catch (error) {
+    console.error(`Face indexing failed for organization ${organizationId}:`, error);
+    throw new Error(`Face indexing failed for organization: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
+/**
  * Search for similar faces in a collection
  */
 export const searchFacesByImage = async (
@@ -255,6 +280,31 @@ export const searchFacesByImageForOrganization = async (
     
     if (!collectionId) {
       throw new Error(`No Rekognition collection found for organization: ${organizationId}`);
+    }
+    
+    return await searchFacesByImage(imageBuffer, collectionId, maxFaces);
+  } catch (error) {
+    console.error(`Face search failed for organization ${organizationId}:`, error);
+    throw new Error(`Face search failed for organization: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
+/**
+ * Search for similar faces in an organization's collection with automatic collection creation
+ */
+export const searchFacesByImageForOrganizationWithEnsure = async (
+  imageBuffer: Buffer,
+  organizationId: string,
+  maxFaces?: number
+): Promise<any[]> => {
+  const { ensureOrganizationCollection } = await import("../organizations/organizations.service");
+  
+  try {
+    // Ensure the organization has a collection (create if missing)
+    const collectionId = await ensureOrganizationCollection(organizationId);
+    
+    if (!collectionId) {
+      throw new Error(`Failed to create or find Rekognition collection for organization: ${organizationId}`);
     }
     
     return await searchFacesByImage(imageBuffer, collectionId, maxFaces);
@@ -329,8 +379,10 @@ export const biometricsService = {
   detectFaces,
   indexFace,
   indexFaceForOrganization,
+  indexFaceForOrganizationWithEnsure,
   searchFacesByImage,
   searchFacesByImageForOrganization,
+  searchFacesByImageForOrganizationWithEnsure,
   createCollection,
   deleteCollection,
   listCollections,

@@ -1,8 +1,11 @@
 import { Hono } from "hono";
-import { uploadUserFace } from "./storage.controller";
+import { registerBiometric } from "./storage.controller";
+import { uploadQr } from "./storage.controller";
 
 const storageRouter = new Hono();
 
-storageRouter.post("/user-biometric", uploadUserFace);
+storageRouter.post("/register-biometric", registerBiometric);
+
+storageRouter.post("/upload-qr", uploadQr);
 
 export default storageRouter;

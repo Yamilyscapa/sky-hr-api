@@ -5,6 +5,7 @@ import {
   detectFaces as detectFacesService,
   indexFace as indexFaceService,
   indexFaceForOrganization as indexFaceForOrganizationService,
+  indexFaceForOrganizationWithEnsure as indexFaceForOrganizationWithEnsureService,
   searchFacesByImage as searchFacesByImageService,
   searchFacesByImageForOrganization as searchFacesByImageForOrganizationService,
   testConnection as testConnectionService
@@ -160,5 +161,79 @@ export async function searchFacesForOrganization(c: Context) {
   } catch (error) {
     console.error("Organization face search error:", error);
     return errorResponse(c, "Organization face search failed", 500);
+  }
+}
+
+export async function registerUserBiometrics(c: Context) {
+  try {
+    const formData = await c.req.formData();
+    const image = formData.get('image') as File;
+    
+    if (!image) {
+      return errorResponse(c, "Image is required", 400);
+    }
+
+    // Get user information from context (set by auth middleware)
+    const user = c.get("user");
+    const organization = c.get("organization");
+
+    if (!user || !organization) {
+      return errorResponse(c, "User and organization information not available", 401);
+    }
+
+    // Use user ID as external image ID for biometric registration
+    const externalImageId = user.id;
+    const imageBuffer = Buffer.from(await image.arrayBuffer());
+    
+    // Register biometrics for the user's organization (with automatic collection creation)
+    const result = await indexFaceForOrganizationWithEnsureService(imageBuffer, externalImageId, organization.id);
+
+    return successResponse(c, {
+      message: "User biometrics registered successfully for organization",
+      data: {
+        ...result,
+        userId: user.id,
+        organizationId: organization.id,
+        organizationName: organization.name,
+      },
+    });
+  } catch (error) {
+    console.error("User biometric registration error:", error);
+    return errorResponse(c, "User biometric registration failed", 500);
+  }
+}
+
+export async function searchUserBiometrics(c: Context) {
+  try {
+    const formData = await c.req.formData();
+    const image = formData.get('image') as File;
+
+    if (!image) {
+      return errorResponse(c, "Image is required", 400);
+    }
+
+    // Get organization information from context (set by auth middleware)
+    const organization = c.get("organization");
+
+    if (!organization) {
+      return errorResponse(c, "Organization information not available", 401);
+    }
+
+    const imageBuffer = Buffer.from(await image.arrayBuffer());
+    
+    // Search biometrics within the user's organization only
+    const result = await searchFacesByImageForOrganizationService(imageBuffer, organization.id);
+
+    return successResponse(c, {
+      message: "User biometric search completed within organization",
+      data: {
+        matches: result,
+        organizationId: organization.id,
+        organizationName: organization.name,
+      },
+    });
+  } catch (error) {
+    console.error("User biometric search error:", error);
+    return errorResponse(c, "User biometric search failed", 500);
   }
 }
