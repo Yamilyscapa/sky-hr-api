@@ -3,6 +3,9 @@ import type { Context } from "hono";
 import { errorResponse, successResponse, ErrorCodes } from "../../core/http";
 import { obfuscateJsonPayload, deobfuscateJsonPayload } from "../../utils/obfuscation";
 import type { StorageService } from "../storage/storage.service";
+import { db } from "../../db";
+import { geofence } from "../../db/schema";
+import { and, eq } from "drizzle-orm";
 
 export interface Payload {
   organization_id: string;
@@ -66,6 +69,16 @@ export const registerLocation = (storageService: StorageService, secret: string)
       
       if (!validateRegisterLocationRequest(data)) {
         return errorResponse(c, "Organization ID and location ID are required", ErrorCodes.BAD_REQUEST);
+      }
+
+      // Validate geofence belongs to the organization and is active
+      const gf = await db
+        .select()
+        .from(geofence)
+        .where(and(eq(geofence.id, data.location_id), eq(geofence.organization_id, data.organization_id), eq(geofence.active, true)))
+        .limit(1);
+      if (!gf || gf.length === 0) {
+        return errorResponse(c, "Invalid location for organization or inactive geofence", ErrorCodes.FORBIDDEN);
       }
 
       const payload: Payload = {
