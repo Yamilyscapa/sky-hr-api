@@ -56,3 +56,5 @@ export const createStorageService = (storageAdapter: StorageAdapter) => ({
   uploadUserFace: uploadUserFace(storageAdapter),
   uploadQr: uploadQr(storageAdapter)
 });
+
+export type StorageService = ReturnType<typeof createStorageService>;

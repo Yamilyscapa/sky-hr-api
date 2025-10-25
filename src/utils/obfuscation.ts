@@ -6,35 +6,40 @@
 /**
  * Obfuscates a payload by appending a secret and converting to hex
  * @param payload - The data to obfuscate
- * @param secret - The secret key for obfuscation (defaults to env var or fallback)
+ * @param secret - The secret key for obfuscation
  * @returns Hex-encoded obfuscated string
  */
-export const obfuscatePayload = (payload: string, secret?: string): string => {
-  const secretKey = secret || process.env.QR_SECRET || "skyhr-secret-2024";
-  const obfuscated = Buffer.from(payload + secretKey).toString("hex");
+export const obfuscatePayload = (payload: string, secret: string): string => {
+  if (!secret) {
+    throw new Error("Secret is required");
+  }
+
+  const obfuscated = Buffer.from(payload + secret).toString("hex");
   return obfuscated;
 };
 
 /**
  * Deobfuscates a hex-encoded payload by removing the secret
  * @param obfuscatedPayload - The hex-encoded obfuscated data
- * @param secret - The secret key used for obfuscation (defaults to env var or fallback)
+ * @param secret - The secret key used for obfuscation
  * @returns The original payload string
  */
-export const deobfuscatePayload = (obfuscatedPayload: string, secret?: string): string => {
-  const secretKey = secret || process.env.QR_SECRET || "skyhr-secret-2024";
-  
+export const deobfuscatePayload = (obfuscatedPayload: string, secret: string): string => {
+
+  if (!secret) {
+    throw new Error("Secret is required");
+  }
+
   try {
     // Convert hex back to string
     const buffer = Buffer.from(obfuscatedPayload, "hex");
     const payloadWithSecret = buffer.toString("utf8");
-    
-    // Remove the secret from the end
-    if (payloadWithSecret.endsWith(secretKey)) {
-      return payloadWithSecret.slice(0, -secretKey.length);
+
+    if (payloadWithSecret.endsWith(secret)) {
+      return payloadWithSecret.slice(0, -secret.length);
     }
-    
-    throw new Error("Invalid obfuscated payload: secret mismatch");
+
+    throw new Error(`Invalid obfuscated payload: secret mismatch. Expected to end with "${secret}" but got "${payloadWithSecret.slice(-secret.length)}"`);
   } catch (error) {
     throw new Error(`Failed to deobfuscate payload: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
@@ -43,10 +48,15 @@ export const deobfuscatePayload = (obfuscatedPayload: string, secret?: string): 
 /**
  * Obfuscates a JSON payload
  * @param payload - The object to obfuscate
- * @param secret - The secret key for obfuscation (defaults to env var or fallback)
+ * @param secret - The secret key for obfuscation
  * @returns Hex-encoded obfuscated JSON string
  */
-export const obfuscateJsonPayload = <T>(payload: T, secret?: string): string => {
+export const obfuscateJsonPayload = <T>(payload: T, secret: string): string => {
+
+  if (!secret) {
+    throw new Error("Secret is required");
+  }
+
   const jsonString = JSON.stringify(payload);
   return obfuscatePayload(jsonString, secret);
 };
@@ -54,12 +64,17 @@ export const obfuscateJsonPayload = <T>(payload: T, secret?: string): string => 
 /**
  * Deobfuscates a hex-encoded JSON payload
  * @param obfuscatedPayload - The hex-encoded obfuscated JSON data
- * @param secret - The secret key used for obfuscation (defaults to env var or fallback)
+ * @param secret - The secret key used for obfuscation
  * @returns The parsed JSON object
  */
-export const deobfuscateJsonPayload = <T>(obfuscatedPayload: string, secret?: string): T => {
+export const deobfuscateJsonPayload = <T>(obfuscatedPayload: string, secret: string): T => {
+
+  if (!secret) {
+    throw new Error("Secret is required");
+  }
+
   const jsonString = deobfuscatePayload(obfuscatedPayload, secret);
-  
+
   try {
     return JSON.parse(jsonString) as T;
   } catch (error) {
