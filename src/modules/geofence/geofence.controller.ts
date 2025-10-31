@@ -68,6 +68,24 @@ export async function getGeofence(c: Context): Promise<Response> {
     }
 }
 
+export async function getGeofencesByOrganization(c: Context): Promise<Response> {
+    try {
+        const organization_id = c.req.query("id");
+        
+        if (!organization_id) return errorResponse(c, "Organization ID is required", ErrorCodes.BAD_REQUEST);
+
+        const gfs = await db.select().from(geofence).where(eq(geofence.organization_id, organization_id as string));
+        if (!gfs || gfs.length === 0) return errorResponse(c, "Geofences not found", ErrorCodes.NOT_FOUND);
+
+        return successResponse(c, {
+            message: "Geofences found",
+            data: gfs,
+        });
+    } catch (error) {
+        return errorResponse(c, "Failed to get geofences by organization", ErrorCodes.INTERNAL_SERVER_ERROR);
+    }
+}
+
 /**
  * Calculates the great-circle distance between two points on Earth using the Haversine formula
  * @param lat1 - Latitude of point 1 in degrees
