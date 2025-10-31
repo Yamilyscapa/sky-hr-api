@@ -30,11 +30,11 @@ function validateGeofenceBody(body: any): GeofenceBody {
 }
 
 export async function createGeofence(c: Context): Promise<Response> {
-    const body = await c.req.parseBody();
-
-    const gf = validateGeofenceBody(body);
+    const body = await c.req.json();
 
     try {
+        console.log('body', body);
+        const gf = validateGeofenceBody(body);
         if (!gf) return errorResponse(c, "Invalid body: name, center_latitude, center_longitude, radius and organization_id are required", ErrorCodes.BAD_REQUEST);
 
         const newGeofence = await db.insert(geofence).values(gf).returning();
@@ -51,7 +51,7 @@ export async function createGeofence(c: Context): Promise<Response> {
 }
 
 export async function getGeofence(c: Context): Promise<Response> {
-    const { id } = await c.req.parseBody();
+    const { id } = await c.req.json();
 
     if (!id) return errorResponse(c, "Geofence ID is required", ErrorCodes.BAD_REQUEST);
 
@@ -102,28 +102,44 @@ function calculateHaversineDistance(
     return EARTH_RADIUS_METERS * angularDistance;
 }
 
-export function isInGeofence(latitude: number, longitude: number, gf: GeofenceBody): boolean {
-    const centerLat = parseFloat(gf.center_latitude);
-    const centerLon = parseFloat(gf.center_longitude);
+export async function isInGeofence(c: Context): Promise<Response> {
+    try {
+        const { latitude, longitude, geofence_id } = await c.req.json();
 
-    if (!gf.center_latitude || !gf.center_longitude) {
-        throw new Error("Invalid geofence center coordinates");
+        if (!latitude || !longitude || !geofence_id) return errorResponse(c, "Latitude, longitude and geofence_id are required", ErrorCodes.BAD_REQUEST);
+
+        const gf = await db.select().from(geofence).where(eq(geofence.id, geofence_id as string));
+        if (!gf || gf.length === 0) return errorResponse(c, "Geofence not found", ErrorCodes.NOT_FOUND);
+
+        const gfBody: GeofenceBody = gf[0] as GeofenceBody & { center_latitude: string, center_longitude: string };
+
+        const centerLat = parseFloat(gfBody.center_latitude);
+        const centerLon = parseFloat(gfBody.center_longitude);
+
+        if (!gfBody.center_latitude || !gfBody.center_longitude) {
+            return errorResponse(c, "Invalid geofence center coordinates", ErrorCodes.BAD_REQUEST);
+        }
+
+        if (isNaN(centerLat) || isNaN(centerLon)) {
+            return errorResponse(c, "Invalid geofence center coordinates", ErrorCodes.BAD_REQUEST);
+        }
+
+        if (isNaN(Number(latitude)) || isNaN(Number(longitude))) {
+            return errorResponse(c, "Invalid user coordinates", ErrorCodes.BAD_REQUEST);
+        }
+
+        const distance = calculateHaversineDistance(
+            Number(latitude),
+            Number(longitude),
+            centerLat,
+            centerLon
+        );
+
+        return successResponse(c, {
+            message: "User is in geofence",
+            data: { isInGeofence: distance <= gfBody.radius },
+        });
+    } catch (error) {
+        return errorResponse(c, "Failed to check if user is in geofence", ErrorCodes.INTERNAL_SERVER_ERROR);
     }
-
-    if (isNaN(centerLat) || isNaN(centerLon)) {
-        throw new Error("Invalid geofence center coordinates");
-    }
-
-    if (isNaN(latitude) || isNaN(longitude)) {
-        throw new Error("Invalid user coordinates");
-    }
-
-    const distance = calculateHaversineDistance(
-        latitude,
-        longitude,
-        centerLat,
-        centerLon
-    );
-
-    return distance <= gf.radius;
 }
