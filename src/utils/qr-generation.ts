@@ -1,25 +1,25 @@
 import qrcode from "qrcode";
 import type { Context } from "hono";
-import { errorResponse, successResponse, ErrorCodes } from "../../core/http";
-import { obfuscateJsonPayload, deobfuscateJsonPayload } from "../../utils/obfuscation";
-import { createMulterAdapter } from "../storage/adapters/multer-adapter";
-import { createStorageService } from "../storage/storage.service";
-import { db } from "../../db";
-import { geofence } from "../../db/schema";
+import { errorResponse, successResponse, ErrorCodes } from "../core/http";
+import { obfuscateJsonPayload, deobfuscateJsonPayload } from "../utils/obfuscation";
+import { createMulterAdapter } from "../modules/storage/adapters/multer-adapter";
+import { createStorageService } from "../modules/storage/storage.service";
+import { db } from "../db";
+import { geofence } from "../db/schema";
 import { and, eq } from "drizzle-orm";
-import { createS3Adapter } from "../storage/adapters/s3-adapter";
+import { createS3Adapter } from "../modules/storage/adapters/s3-adapter";
 
 export interface Payload {
   organization_id: string;
   location_id: string;
 }
 
-export interface RegisterLocationRequest {
+export interface CreateObfuscatedQrCodeRequest {
   organization_id: string;
   location_id: string;
 }
 
-export interface DeobfuscateRequest {
+export interface DeobfuscateObfuscatedQrCodeRequest {
   obfuscated_data: string;
 }
 
@@ -30,7 +30,7 @@ const QR_SECRET = process.env.QR_SECRET
 const storageAdapter = process.env.NODE_ENV === "development" || !process.env.NODE_ENV ? createMulterAdapter() : createS3Adapter();
 const storageService = createStorageService(storageAdapter);
 
-const validateRegisterLocationRequest = (data: any): data is RegisterLocationRequest => {
+const validateCreateObfuscatedQrCodeRequest = (data: any): data is CreateObfuscatedQrCodeRequest => {
   if (!data || !data.organization_id || !data.location_id) {
     return false;
   }
@@ -38,7 +38,7 @@ const validateRegisterLocationRequest = (data: any): data is RegisterLocationReq
   return true;
 };
 
-const validateDeobfuscateRequest = (data: any): data is DeobfuscateRequest => {
+const validateDeobfuscateObfuscatedQrCodeRequest = (data: any): data is DeobfuscateObfuscatedQrCodeRequest => {
   if (!data || !data.obfuscated_data) {
     return false;
   }
@@ -58,27 +58,25 @@ const createFileFromBuffer = (buffer: Buffer, fileName: string, mimeType: string
   return new File([buffer], fileName, { type: mimeType });
 };
 
-export const registerLocation = async (c: Context): Promise<Response> => {
+export const createObfuscatedQrCode = async (organization_id: string, location_id: string): Promise<String | null> => {
   try {
-    const data = await c.req.parseBody();
-
-    if (!validateRegisterLocationRequest(data)) {
-      return errorResponse(c, "Organization ID and location ID are required", ErrorCodes.BAD_REQUEST);
+    if (!organization_id || !location_id) {
+      throw new Error("Organization ID and location ID are required");
     }
 
     const gf = await db
       .select()
       .from(geofence)
-      .where(and(eq(geofence.id, data.location_id), eq(geofence.organization_id, data.organization_id), eq(geofence.active, true)))
+      .where(and(eq(geofence.id, location_id), eq(geofence.organization_id, organization_id), eq(geofence.active, true)))
       .limit(1);
 
     if (!gf || gf.length === 0) {
-      return errorResponse(c, "Invalid location for organization or inactive geofence", ErrorCodes.FORBIDDEN);
+      throw new Error("Invalid location for organization or inactive geofence");
     }
 
     const payload: Payload = {
-      organization_id: data.organization_id,
-      location_id: data.location_id
+      organization_id: organization_id,
+      location_id: location_id
     };
 
     const obfuscated = obfuscateJsonPayload(payload, QR_SECRET);
@@ -86,29 +84,20 @@ export const registerLocation = async (c: Context): Promise<Response> => {
     const qrBuffer = await generateQrCode(obfuscated);
     const qrFile = createFileFromBuffer(qrBuffer, "qr.png", "image/png");
 
-    const result = await storageService.uploadQr(qrFile, "location", data.location_id);
+    const result = await storageService.uploadQr(qrFile, "location", location_id);
 
-    return successResponse(c, {
-      message: "QR uploaded successfully",
-      data: {
-        url: result.url,
-        fileName: result.fileName
-      }
-    });
+    return result.url;
   } catch (error) {
-    return errorResponse(
-      c,
-      `Failed to register location: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      ErrorCodes.INTERNAL_SERVER_ERROR
-    );
+    console.error(`Failed to create obfuscated QR code: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return null;
   }
 };
 
-export const deobfuscateData = async (c: Context): Promise<Response> => {
+export const deobfuscateObfuscatedQrCode = async (c: Context): Promise<Response> => {
   try {
     const data = await c.req.parseBody();
 
-    if (!validateDeobfuscateRequest(data)) {
+    if (!validateDeobfuscateObfuscatedQrCodeRequest(data)) {
       return errorResponse(c, "Obfuscated data is required", ErrorCodes.BAD_REQUEST);
     }
 

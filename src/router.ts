@@ -4,7 +4,6 @@ import authRouter from "./modules/auth/auth.routes";
 import storageRouter from "./modules/storage/storage.routes";
 import biometricsRouter from "./modules/biometrics/biometrics.routes";
 import organizationsRouter from "./modules/organizations/organizations.routes";
-import qrRouter from "./modules/locations/location.router";
 import attendanceRouter from "./modules/attendance/attendance.routes";
 import geofenceRouter from "./modules/geofence/geofence.routes";
 
@@ -15,7 +14,6 @@ router.route("/auth", authRouter);
 router.route("/storage", storageRouter);
 router.route("/biometrics", biometricsRouter);
 router.route("/organizations", organizationsRouter);
-router.route("/qr", qrRouter);
 router.route("/attendance", attendanceRouter);
 router.route("/geofence", geofenceRouter);
 

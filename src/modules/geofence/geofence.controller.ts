@@ -1,8 +1,10 @@
 import type { Context } from "hono";
 import { ErrorCodes, errorResponse, successResponse } from "../../core/http";
-import { geofence, organization } from "../../db/schema";
+import { geofence } from "../../db/schema";
 import { db } from "../../db";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import { createObfuscatedQrCode } from "../../utils/qr-generation";
+
 interface GeofenceBody {
     name: string;
     type: "circular" | "polygon";
@@ -33,18 +35,27 @@ export async function createGeofence(c: Context): Promise<Response> {
     const body = await c.req.json();
 
     try {
-        console.log('body', body);
         const gf = validateGeofenceBody(body);
         if (!gf) return errorResponse(c, "Invalid body: name, center_latitude, center_longitude, radius and organization_id are required", ErrorCodes.BAD_REQUEST);
 
         const newGeofence = await db.insert(geofence).values(gf).returning();
 
-
         if (!newGeofence || newGeofence.length === 0) return errorResponse(c, "Failed to create geofence", ErrorCodes.INTERNAL_SERVER_ERROR);
+
+        const url = await createObfuscatedQrCode(newGeofence[0]?.organization_id as string, newGeofence[0]?.id as string);
+
+        if (!url) return errorResponse(c, "Failed to create obfuscated QR code", ErrorCodes.INTERNAL_SERVER_ERROR);
+
+        const updatedGeofence = await db.update(geofence)
+            .set({ qr_code_url: typeof url === "string" ? url : String(url) })
+            .where(eq(geofence.id, newGeofence[0]?.id as string))
+            .returning();
+
+        if (!updatedGeofence || updatedGeofence.length === 0) return errorResponse(c, "Failed to update geofence", ErrorCodes.INTERNAL_SERVER_ERROR);
 
         return successResponse(c, {
             message: "Geofence created successfully",
-            data: newGeofence[0],
+            data: updatedGeofence[0],
         });
     } catch (error) {
         return errorResponse(c, "Failed to create geofence", ErrorCodes.INTERNAL_SERVER_ERROR);
@@ -72,7 +83,7 @@ export async function getGeofence(c: Context): Promise<Response> {
 export async function getGeofencesByOrganization(c: Context): Promise<Response> {
     try {
         const organization_id = c.req.query("id");
-        
+
         if (!organization_id) return errorResponse(c, "Organization ID is required", ErrorCodes.BAD_REQUEST);
 
         const gfs = await db.select().from(geofence).where(eq(geofence.organization_id, organization_id as string));
