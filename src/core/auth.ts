@@ -4,6 +4,7 @@ import { betterAuth } from "better-auth";
 import { expo } from "@better-auth/expo";
 import { db } from "../db";
 import { users, accounts, sessions, verificationTokens, organization, member, invitation, team, teamMember } from "../db/schema";
+import { sendEmail } from "../utils/email";
 
 const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
 const BETTER_AUTH_URL = process.env.BETTER_AUTH_URL;
@@ -16,12 +17,29 @@ export const auth = betterAuth({
     organizationPlugin({
       // ! Restrict organization creation to only paid users
       allowUserToCreateOrganization: true,
-      
       defaultRole: "member",
-      
       teams: {
         enabled: true,
         maximumTeams: 10,
+      },
+      async sendInvitationEmail(data: any) {
+        const appUrl = process.env.APP_URL;
+        const token = data.invitation?.id;
+        
+        if (!token) {
+          throw new Error("Invitation token is missing for email invitation.");
+        }
+
+        const inviteLink = `${appUrl}/accept-invitation?token=${token}`;
+
+        await sendEmail(
+          data.email,
+          `Invitación para unirse a ${data.organization?.name ?? "una organización"}`,
+          `<p>Está invitado a unirse a ${data.organization?.name ?? "una organización"}. Haga clic <a href="${inviteLink}">aquí</a> para aceptar la invitación.</p>`
+        );
+      },
+      async onInvitationAccepted(data: any) {
+        // TODO: Add logic to handle invitation accepted
       },
     })
   ],
@@ -44,7 +62,7 @@ export const auth = betterAuth({
   },
   cookies: {
     secure: true,              // required for SameSite=None
-    sameSite: 'none',        
+    sameSite: 'none',
     essionToken: {
       path: '/',            // avoid path lock-in
       httpOnly: true,

@@ -113,6 +113,7 @@ export const invitation = pgTable("invitation", {
     .references(() => organization.id, { onDelete: "cascade" }),
   email: text("email").notNull(),
   role: text("role"),
+  teamId: text("team_id").references(() => team.id),
   status: text("status").default("pending").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   inviterId: text("inviter_id")
@@ -329,6 +330,10 @@ export const invitationRelations = relations(invitation, ({ one }) => ({
   organization: one(organization, {
     fields: [invitation.organizationId],
     references: [organization.id],
+  }),
+  team: one(team, {
+    fields: [invitation.teamId],
+    references: [team.id],
   }),
   inviter: one(users, {
     fields: [invitation.inviterId],
