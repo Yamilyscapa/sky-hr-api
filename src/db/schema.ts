@@ -166,6 +166,7 @@ export const geofence = pgTable("geofence", {
   radius: integer("radius"), // Radius in meters for circular geofence
   coordinates: text("coordinates"), // JSON string for polygon coordinates
   organization_id: text("organization_id").references(() => organization.id),
+  qr_code_url: text("qr_code_url"),
   active: boolean("active").notNull().default(true),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),

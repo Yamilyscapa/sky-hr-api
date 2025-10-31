@@ -39,6 +39,7 @@ export async function createGeofence(c: Context): Promise<Response> {
 
         const newGeofence = await db.insert(geofence).values(gf).returning();
 
+
         if (!newGeofence || newGeofence.length === 0) return errorResponse(c, "Failed to create geofence", ErrorCodes.INTERNAL_SERVER_ERROR);
 
         return successResponse(c, {
