@@ -1,58 +1,81 @@
 /**
- * Obfuscation utilities for QR code payloads
- * Provides functions to obfuscate and deobfuscate data using a secret key
+ * HMAC-based signing utilities for QR code payloads
+ * Provides cryptographically secure signing and verification using HMAC-SHA256
  */
 
+import crypto from "crypto";
+
 /**
- * Obfuscates a payload by appending a secret and converting to hex
- * @param payload - The data to obfuscate
- * @param secret - The secret key for obfuscation
- * @returns Hex-encoded obfuscated string
+ * Signs a payload using HMAC-SHA256
+ * @param payload - The data to sign
+ * @param secret - The secret key for signing
+ * @returns Base64-encoded string containing payload and signature
  */
 export const obfuscatePayload = (payload: string, secret: string): string => {
   if (!secret) {
     throw new Error("Secret is required");
   }
 
-  const obfuscated = Buffer.from(payload + secret).toString("hex");
-  return obfuscated;
+  // Create HMAC signature
+  const signature = crypto
+    .createHmac("sha256", secret)
+    .update(payload)
+    .digest("hex");
+
+  // Combine payload and signature
+  const combined = `${payload}.${signature}`;
+  
+  // Encode to base64 for compact representation
+  return Buffer.from(combined).toString("base64");
 };
 
 /**
- * Deobfuscates a hex-encoded payload by removing the secret
- * @param obfuscatedPayload - The hex-encoded obfuscated data
- * @param secret - The secret key used for obfuscation
- * @returns The original payload string
+ * Verifies and extracts a signed payload using HMAC-SHA256
+ * @param signedPayload - The base64-encoded signed data
+ * @param secret - The secret key used for signing
+ * @returns The original payload string if signature is valid
  */
-export const deobfuscatePayload = (obfuscatedPayload: string, secret: string): string => {
-
+export const deobfuscatePayload = (signedPayload: string, secret: string): string => {
   if (!secret) {
     throw new Error("Secret is required");
   }
 
   try {
-    // Convert hex back to string
-    const buffer = Buffer.from(obfuscatedPayload, "hex");
-    const payloadWithSecret = buffer.toString("utf8");
-
-    if (payloadWithSecret.endsWith(secret)) {
-      return payloadWithSecret.slice(0, -secret.length);
+    // Decode from base64
+    const decoded = Buffer.from(signedPayload, "base64").toString("utf8");
+    
+    // Split payload and signature
+    const lastDotIndex = decoded.lastIndexOf(".");
+    if (lastDotIndex === -1) {
+      throw new Error("Invalid signed payload format: missing signature");
     }
 
-    throw new Error(`Invalid obfuscated payload: secret mismatch. Expected to end with "${secret}" but got "${payloadWithSecret.slice(-secret.length)}"`);
+    const payload = decoded.substring(0, lastDotIndex);
+    const providedSignature = decoded.substring(lastDotIndex + 1);
+
+    // Verify signature
+    const expectedSignature = crypto
+      .createHmac("sha256", secret)
+      .update(payload)
+      .digest("hex");
+
+    if (providedSignature !== expectedSignature) {
+      throw new Error("Invalid signature: payload has been tampered with");
+    }
+
+    return payload;
   } catch (error) {
-    throw new Error(`Failed to deobfuscate payload: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    throw new Error(`Failed to verify signed payload: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };
 
 /**
- * Obfuscates a JSON payload
- * @param payload - The object to obfuscate
- * @param secret - The secret key for obfuscation
- * @returns Hex-encoded obfuscated JSON string
+ * Signs a JSON payload using HMAC-SHA256
+ * @param payload - The object to sign
+ * @param secret - The secret key for signing
+ * @returns Base64-encoded signed JSON string
  */
 export const obfuscateJsonPayload = <T>(payload: T, secret: string): string => {
-
   if (!secret) {
     throw new Error("Secret is required");
   }
@@ -62,22 +85,21 @@ export const obfuscateJsonPayload = <T>(payload: T, secret: string): string => {
 };
 
 /**
- * Deobfuscates a hex-encoded JSON payload
- * @param obfuscatedPayload - The hex-encoded obfuscated JSON data
- * @param secret - The secret key used for obfuscation
- * @returns The parsed JSON object
+ * Verifies and parses a signed JSON payload
+ * @param signedPayload - The base64-encoded signed JSON data
+ * @param secret - The secret key used for signing
+ * @returns The parsed JSON object if signature is valid
  */
-export const deobfuscateJsonPayload = <T>(obfuscatedPayload: string, secret: string): T => {
-
+export const deobfuscateJsonPayload = <T>(signedPayload: string, secret: string): T => {
   if (!secret) {
     throw new Error("Secret is required");
   }
 
-  const jsonString = deobfuscatePayload(obfuscatedPayload, secret);
+  const jsonString = deobfuscatePayload(signedPayload, secret);
 
   try {
     return JSON.parse(jsonString) as T;
   } catch (error) {
-    throw new Error(`Failed to parse deobfuscated JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    throw new Error(`Failed to parse signed JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };

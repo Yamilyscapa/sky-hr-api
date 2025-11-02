@@ -46,8 +46,8 @@ const validateDeobfuscateObfuscatedQrCodeRequest = (data: any): data is Deobfusc
   return true;
 };
 
-const generateQrCode = async (obfuscatedPayload: string): Promise<Buffer> => {
-  return qrcode.toBuffer(obfuscatedPayload, {
+const generateQrCode = async (signedPayload: string): Promise<Buffer> => {
+  return qrcode.toBuffer(signedPayload, {
     errorCorrectionLevel: "M",
     margin: 2,
     scale: 8
@@ -79,16 +79,17 @@ export const createObfuscatedQrCode = async (organization_id: string, location_i
       location_id: location_id
     };
 
-    const obfuscated = obfuscateJsonPayload(payload, QR_SECRET);
+    // Sign the payload with HMAC-SHA256
+    const signed = obfuscateJsonPayload(payload, QR_SECRET);
 
-    const qrBuffer = await generateQrCode(obfuscated);
+    const qrBuffer = await generateQrCode(signed);
     const qrFile = createFileFromBuffer(qrBuffer, "qr.png", "image/png");
 
     const result = await storageService.uploadQr(qrFile, "location", location_id);
 
     return result.url;
   } catch (error) {
-    console.error(`Failed to create obfuscated QR code: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    console.error(`Failed to create signed QR code: ${error instanceof Error ? error.message : 'Unknown error'}`);
     return null;
   }
 };
@@ -98,26 +99,26 @@ export const deobfuscateObfuscatedQrCode = async (c: Context): Promise<Response>
     const data = await c.req.parseBody();
 
     if (!validateDeobfuscateObfuscatedQrCodeRequest(data)) {
-      return errorResponse(c, "Obfuscated data is required", ErrorCodes.BAD_REQUEST);
+      return errorResponse(c, "Signed data is required", ErrorCodes.BAD_REQUEST);
     }
 
     try {
       const payload = deobfuscateJsonPayload<Payload>(data.obfuscated_data, QR_SECRET);
       return successResponse(c, {
-        message: "Data deobfuscated successfully",
+        message: "QR code verified successfully",
         data: payload
       });
-    } catch (deobfuscateError) {
+    } catch (verifyError) {
       return errorResponse(
         c,
-        `Failed to deobfuscate data: ${deobfuscateError instanceof Error ? deobfuscateError.message : 'Unknown error'}`,
+        `Failed to verify QR code signature: ${verifyError instanceof Error ? verifyError.message : 'Unknown error'}`,
         ErrorCodes.BAD_REQUEST
       );
     }
   } catch (error) {
     return errorResponse(
       c,
-      `Failed to process deobfuscate request: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      `Failed to process verification request: ${error instanceof Error ? error.message : 'Unknown error'}`,
       ErrorCodes.INTERNAL_SERVER_ERROR
     );
   }

@@ -173,6 +173,21 @@ export const geofence = pgTable("geofence", {
   deleted_at: timestamp("deleted_at"),
 });
 
+// User-Geofence Assignment (Junction Table)
+export const user_geofence = pgTable("user_geofence", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  user_id: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  geofence_id: uuid("geofence_id")
+    .notNull()
+    .references(() => geofence.id, { onDelete: "cascade" }),
+  organization_id: text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Shift Management Module
 export const shift = pgTable("shift", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -268,6 +283,7 @@ export const organizationRelations = relations(
     attendanceEvents: many(attendance_event),
     announcements: many(announcement),
     geofences: many(geofence),
+    userGeofences: many(user_geofence),
     shifts: many(shift),
     userSchedules: many(user_schedule),
     settings: one(organization_settings, {
@@ -285,6 +301,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   permissions: many(permissions),
   attendanceEvents: many(attendance_event),
   userSchedules: many(user_schedule),
+  userGeofences: many(user_geofence),
   // Better Auth relations
   sessions: many(sessions),
   accounts: many(accounts),
@@ -388,9 +405,25 @@ export const announcementTeamsRelations = relations(announcement_teams, ({ one }
   }),
 }));
 
-export const geofenceRelations = relations(geofence, ({ one }) => ({
+export const geofenceRelations = relations(geofence, ({ one, many }) => ({
   organization: one(organization, {
     fields: [geofence.organization_id],
+    references: [organization.id],
+  }),
+  userGeofences: many(user_geofence),
+}));
+
+export const userGeofenceRelations = relations(user_geofence, ({ one }) => ({
+  user: one(users, {
+    fields: [user_geofence.user_id],
+    references: [users.id],
+  }),
+  geofence: one(geofence, {
+    fields: [user_geofence.geofence_id],
+    references: [geofence.id],
+  }),
+  organization: one(organization, {
+    fields: [user_geofence.organization_id],
     references: [organization.id],
   }),
 }));
