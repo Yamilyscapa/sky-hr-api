@@ -1,7 +1,9 @@
 # SkyHR API Documentation
 
 ## Overview
-The SkyHR API is built on Hono (Bun runtime). It exposes modules for health checks, authentication (via Better Auth), storage, biometrics (AWS Rekognition), organizations, QR workflows, and attendance. Base app mounts all routes at `/`.
+The SkyHR API is built on Hono (Bun runtime). It exposes modules for health checks, authentication (via Better Auth), storage, biometrics (AWS Rekognition), organizations, geofence, QR workflows, and attendance. Base app mounts all routes at `/`.
+
+**Architecture**: Follows Functional Programming principles with separation between controllers (HTTP handlers) and services (business logic).
 
 - Base URL: `${BETTER_AUTH_URL || http://localhost:8080}`
 - CORS: Restricted to `TRUSTED_ORIGINS` (comma-separated). Credentials enabled.
@@ -101,21 +103,25 @@ Organization specific (auth required; org id supplied manually):
 - POST `/biometrics/organization/index-face`
   - Auth: `requireAuth`
   - FormData: `image` File, `externalImageId` string, `organizationId` string
+  - Response: `{ message, data: { faceId, success } }`
 
 - POST `/biometrics/organization/search-faces`
   - Auth: `requireAuth`
   - FormData: `image` File, `organizationId` string
+  - Response: `{ message, data: FaceMatches[] }`
 
 User-level (auth + active organization context):
 - POST `/biometrics/register`
   - Auth: `requireAuth`, `requireOrganization`
   - FormData: `image` File
-  - Behavior: Indexes the face into the user’s organization collection (ensuring collection exists) with `externalImageId = user.id`.
+  - Behavior: Indexes the face into the user's organization collection (ensuring collection exists) with `externalImageId = user.id`.
+  - Response: `{ message, data: { success, faceId, collectionId } }`
 
 - POST `/biometrics/search`
   - Auth: `requireAuth`, `requireOrganization`
   - FormData: `image` File
-  - Behavior: Searches within the user’s organization collection.
+  - Behavior: Searches within the user's organization collection.
+  - Response: `{ message, data: { matches: FaceMatches[] } }`
 
 Rekognition configuration:
 - `similarityThreshold`: 80
@@ -148,71 +154,455 @@ Base path: `/organizations`
 
 Notes: In production, consider securing organization endpoints and authenticating webhook origin.
 
-### QR
-Base path: `/qr`
+### Geofence
+Base path: `/geofence`
 
-- POST `/qr/register-location`
-  - Public in current code path
-  - Form/URL-encoded or multipart body parsed via `parseBody`
-  - Fields: `organization_id` string, `location_id` string
+The Geofence module manages location-based attendance zones for organizations. Each geofence is associated with an organization and can have QR codes for check-in.
+
+- POST `/geofence/create`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON: `{ name: string, center_latitude: string, center_longitude: string, radius: number, organization_id: string }`
   - Behavior:
-    - Validates that the `geofence` (location) exists, is active, and belongs to `organization_id`
-    - Obfuscates payload `{ organization_id, location_id }` using secret
-    - Generates PNG QR code, uploads via Storage service with key `${location_id}-0-location.png`
-  - Response: `{ message, data: { url, fileName } }`
+    - Creates a circular geofence location
+    - Automatically generates an obfuscated QR code for the location
+    - Uploads QR code image to storage
+    - Returns geofence with `qr_code_url`
+  - Response 200: `{ message: "Geofence created successfully", data: GeofenceObject }`
+  - Note: Only circular geofences are currently supported
 
-- POST `/qr/deobfuscate`
-  - Public in current code path
-  - Form/URL-encoded body: `obfuscated_data` string
-  - Behavior: Deobfuscates payload -> `{ organization_id, location_id }`
-  - Response: `{ message, data: { organization_id, location_id } }`
+- POST `/geofence/get`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON: `{ id: string }`
+  - Response 200: `{ message: "Geofence found", data: GeofenceObject }`
 
-Secret handling:
-- `QR_SECRET` base64-encoded preferred. Fallback: literal value. Default: `skyhr-secret-2024`.
-- Obfuscation: hex encoding of JSON with secret suffix; not cryptographically secure.
+- GET `/geofence/get-by-organization`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Query: `?id=<organization_id>`
+  - Response 200: `{ message: "Geofences found", data: GeofenceObject[] }`
+
+- POST `/geofence/is-in`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON: `{ latitude: string, longitude: string, geofence_id: string }`
+  - Behavior: Calculates distance using Haversine formula to determine if user is within geofence radius
+  - Response 200: `{ message: "User is in geofence", data: { isInGeofence: boolean } }`
+
+Geofence Object:
+```json
+{
+  "id": "uuid",
+  "name": "string",
+  "type": "circular",
+  "center_latitude": "string",
+  "center_longitude": "string",
+  "radius": "number (meters)",
+  "organization_id": "string",
+  "qr_code_url": "string | null",
+  "active": "boolean",
+  "created_at": "timestamp",
+  "updated_at": "timestamp"
+}
+```
+
+QR Code Integration:
+- QR codes are automatically generated during geofence creation using the `createObfuscatedQrCode` utility
+- QR payload contains: `{ organization_id, location_id }`
+- QR codes are obfuscated using hex encoding with secret suffix
+- `QR_SECRET` base64-encoded preferred. Fallback: literal value. Default: `skyhr-secret-2024`
+- File naming pattern: `${location_id}-0-location.png`
 
 ### Attendance
 Base path: `/attendance`
 
+The Attendance module manages employee check-in with multi-factor verification (QR code + biometric + optional geolocation).
+
+**Architecture**: Separated into controller (HTTP handlers) and service (business logic) following functional programming patterns.
+
 - POST `/attendance/qr/validate`
   - Auth: `requireAuth`, `requireOrganization`
   - JSON: `{ qr_data: string }`
-  - Behavior: Deobfuscates payload and validates it matches active organization and an active geofence
+  - Behavior: 
+    - Deobfuscates QR payload using secret
+    - Validates payload matches user's active organization
+    - Verifies geofence exists and is active
   - Response 200: `{ message: "QR valid", data: { location_id, organization_id } }`
+  - Response 400: Invalid or malformed QR
+  - Response 403: QR doesn't belong to organization or location inactive
 
 - POST `/attendance/check-in`
   - Auth: `requireAuth`, `requireOrganization`
-  - FormData: `qr_data` string, `image` File, optional `latitude` string, `longitude` string
-  - Behavior:
-    - Validates QR belongs to user’s active organization and geofence is active
-    - Biometric verification: searches in the organization collection and compares `ExternalImageId` against `user.id`
-    - On success, creates `attendance_event` with metadata (geolocation, face confidence)
-  - Response 200: `{ message: "Attendance recorded", data: { id, check_in, user_id, organization_id, face_confidence, is_verified } }`
+  - FormData: 
+    - `qr_data`: string (required) - Obfuscated QR code data
+    - `image`: File (required) - User's face image for biometric verification
+    - `latitude`: string (optional) - GPS latitude
+    - `longitude`: string (optional) - GPS longitude
+  - Behavior (3-step verification):
+    1. **QR Validation**: Validates QR belongs to user's active organization and geofence is active
+    2. **Biometric Verification**: Searches face in organization's AWS Rekognition collection, compares `ExternalImageId` against `user.id`
+    3. **Record Creation**: Creates `attendance_event` with all metadata (timestamp, geolocation, face confidence, verification status)
+  - Response 200: 
+    ```json
+    {
+      "message": "Attendance recorded",
+      "data": {
+        "id": "uuid",
+        "check_in": "timestamp",
+        "user_id": "string",
+        "organization_id": "string",
+        "face_confidence": "string (similarity score)",
+        "is_verified": "boolean"
+      }
+    }
+    ```
+  - Response 400: Missing qr_data or image
+  - Response 403: QR mismatch, location inactive, or face doesn't match user
+  - Response 500: Failed to create attendance record
+
+Service Functions:
+- `getQrSecret()`: Retrieves and decodes QR secret from environment
+- `parseQrPayload(qrData)`: Deobfuscates QR data to extract organization and location IDs
+- `findActiveGeofence(locationId, orgId)`: Queries for active geofence
+- `createAttendanceEvent(args)`: Inserts attendance record with all metadata
 
 ## Data Model Highlights
-- `users`: includes `user_face_url: text[]` for stored user face image keys
-- `organization`: includes `rekognition_collection_id`
-- `geofence`: org-scoped locations, can be circular or polygonal, `active: boolean`
-- `attendance_event`: records check-in with verification source and scores
 
-## Capabilities
-- User authentication, sessions, organizations, teams via Better Auth
-- Local and S3 file storage with validation and typed adapters
-- AWS Rekognition integration: compare, detect, index, and search faces; per-organization collections
-- QR workflow: generate organization/location QR codes, validate and deobfuscate
-- Attendance check-in with QR validation and biometric verification
+### Core Tables
+- **`users`**: Better Auth users with custom fields
+  - `user_face_url: text[]` - Array of stored face image URLs/keys
+  - `deleted_at` - Soft delete timestamp
 
-## Limitations and Security Considerations
-- Several routes are public in current code (no auth middleware):
-  - `/storage/*`, `/organizations/*` (including ensure, get), `/qr/*`, and all Better Auth webhooks
-  - Recommendation: Add signature verification for webhooks; add `requireAuth`/`requireRole` where appropriate.
-- QR obfuscation is not encryption; it is reversible hex + secret. Use a cryptographically secure scheme (e.g., AES-GCM, HMAC for integrity) if tamper-resistance is needed.
-- `register-biometric` uses placeholder user; replace with authenticated context and enforce quotas.
-- CORS origins must be configured via `TRUSTED_ORIGINS` for production. Cookies are `SameSite=None; Secure` so HTTPS is required.
-- Rekognition requires AWS credentials and regional configuration; rate limits and costs apply. Validate request sizes and content types. Consider liveness/spoof detection.
-- File uploads limited to 50MB in multer adapter; S3 path has no explicit limit but should be validated server-side.
-- Error messages may leak implementation details in logs; avoid logging sensitive data (face images, secrets).
-- Organization endpoints lack role checks; add `requireRole(["admin","owner"])` where needed.
+- **`sessions`**: Better Auth sessions with organization context
+  - `activeOrganizationId` - Current active organization for multi-org users
+
+- **`organization`**: Organizations with business and biometric features
+  - `rekognition_collection_id: text` - AWS Rekognition collection ID (unique per org)
+  - `subscription_id: uuid` - Links to subscription plan
+  - `is_active: boolean` - Organization status
+
+- **`subscription`**: Business subscription plans
+  - `max_users: integer` - User limit for plan
+  - `is_active: boolean` - Subscription status
+
+- **`member`**: Organization membership (Better Auth)
+  - `role: text` - "owner", "admin", or "member"
+  - Cascade deletes with organization and user
+
+- **`team`**: Sub-organization teams
+  - `team_member` - Junction table for team membership
+
+- **`geofence`**: Location-based zones for attendance
+  - `type: text` - Currently only "circular" supported
+  - `center_latitude/center_longitude: text` - Precise coordinates
+  - `radius: integer` - Radius in meters
+  - `qr_code_url: text` - Generated QR code image URL
+  - `active: boolean` - Enable/disable without deleting
+  - `organization_id` - Org-scoped
+
+- **`attendance_event`**: Attendance check-in records
+  - `check_in: timestamp` - Check-in time
+  - `is_verified: boolean` - Verification status
+  - `source: text` - "qr_face", "manual", "fingerprint", etc.
+  - `latitude/longitude: text` - GPS coordinates (optional)
+  - `face_confidence: text` - AWS Rekognition similarity score
+  - `liveness_score: text` - Anti-spoofing score (not currently used)
+  - `spoof_flag: boolean` - Potential spoof detection flag
+  - `distance_to_geofence_m: integer` - Distance in meters (not currently calculated)
+
+- **`permissions`**: Leave/permission requests
+  - `documents_url: text` - Supporting documents
+  - `starting_date/end_date` - Permission date range
+  - `is_approved: boolean` - Approval status
+
+- **`announcement`**: Organization announcements
+  - `scope: text` - "all", "team", "department", "specific_users"
+  - `category: text` - Announcement category
+  - `announcement_teams` - Junction table for team-targeted announcements
+
+### Soft Deletes
+Tables with `deleted_at: timestamp` field support soft deletion:
+- `users`, `geofence`, `attendance_event`, `permissions`, `announcement`
+
+## Capabilities & Features
+
+### Authentication & Authorization
+✅ **Better Auth Integration**
+- Email/password authentication with session management
+- Organization and team support with role-based access ("owner", "admin", "member")
+- Multi-organization membership with active organization context
+- Invitation system for organization onboarding
+- Session lifetime: 7 days with daily rolling updates
+- Secure cookies: `httpOnly`, `SameSite=None`, `Secure` (HTTPS required in production)
+
+✅ **Middleware Protection**
+- `requireAuth`: Validates session and injects user context
+- `requireOrganization`: Validates org membership and loads organization
+- `requireRole(roles[])`: Enforces specific roles (not fully implemented across all routes)
+- `requireEmailVerified`: Email verification check (not fully implemented)
+
+### File Storage
+✅ **Dual Storage Adapters** (Strategy Pattern)
+- **Development**: Local disk storage with Multer
+  - Files served at `/upload/*`
+  - URLs: `${BASE_URL}/upload/<filename>`
+- **Production**: AWS S3 cloud storage
+  - Requires: `S3_BUCKET`, `AWS_REGION`, credentials
+
+✅ **Upload Policies**
+- Max size: 50MB
+- Allowed types: Images (jpeg, png, gif, webp), Videos (mp4, mpeg, quicktime, avi)
+- Typed storage interface for adapter swapping
+
+✅ **Upload Endpoints**
+- User biometric face uploads (currently uses placeholder user)
+- QR code image uploads for geofence locations
+
+### Biometric Verification (AWS Rekognition)
+✅ **Per-Organization Collections**
+- Each organization gets unique Rekognition collection
+- Collections created automatically via webhooks on org creation
+- Collections deleted when organization is deleted
+
+✅ **Face Recognition Features**
+- **Compare Faces**: 1:1 face comparison with similarity score
+- **Detect Faces**: Identify faces in images with confidence scores
+- **Index Faces**: Add faces to collections with external IDs
+- **Search Faces**: 1:N face search within collections
+
+✅ **User-Level Integration**
+- Users register their face linked to their user ID
+- Face search scoped to user's organization
+- Used for attendance verification
+
+✅ **Configuration**
+- Similarity threshold: 80%
+- Face detection confidence: 90%
+- Max faces per query: 10
+- Quality filter: AUTO
+
+### Geofence Management
+✅ **Location-Based Zones**
+- Create circular geofences with center point and radius
+- Organization-scoped locations
+- Active/inactive status without deletion
+- Haversine formula for distance calculation
+
+✅ **QR Code Generation**
+- Automatic QR code creation for each geofence
+- Obfuscated payload with organization and location IDs
+- PNG format with error correction level M
+- Stored via storage service
+
+✅ **Geofence Validation**
+- Check if user is within geofence radius
+- Used for attendance location verification
+
+### Attendance Tracking
+✅ **Multi-Factor Check-In**
+- **Step 1**: QR code validation (location + organization match)
+- **Step 2**: Biometric verification (face recognition)
+- **Step 3**: Optional GPS coordinates capture
+
+✅ **Rich Metadata**
+- Timestamp of check-in
+- Verification status and source ("qr_face", etc.)
+- Face confidence score from Rekognition
+- GPS coordinates (latitude/longitude)
+- Spoof detection flag (placeholder for future anti-spoofing)
+
+✅ **Organization-Scoped**
+- All attendance records linked to organization
+- Face search only within organization collection
+- QR codes validated against organization
+
+### Organizations & Teams
+✅ **Multi-Tenancy**
+- Users can belong to multiple organizations
+- Active organization concept in sessions
+- Organization-level data isolation
+
+✅ **Webhooks**
+- Organization created → Auto-create Rekognition collection
+- Organization deleted → Auto-delete Rekognition collection
+
+✅ **Team Structure**
+- Teams within organizations
+- Team membership with roles
+- Team-scoped announcements (schema exists, endpoints not implemented)
+
+### Code Architecture
+✅ **Functional Programming**
+- Pure functions over classes
+- Immutable data patterns
+- Function composition
+- Separated controllers (HTTP) from services (business logic)
+
+✅ **Type Safety**
+- TypeScript throughout
+- Drizzle ORM with typed schema
+- Interface-based storage adapters
+
+## Limitations & Known Issues
+
+### Security Gaps ⚠️
+
+**1. Public Endpoints Without Auth**
+- `/storage/*` - Should require auth and use real user context
+  - Currently uses placeholder user `id=123`
+  - No file upload quotas or rate limiting
+- `/organizations/:id` - Organization details exposed publicly
+- `/organizations/:id/ensure-collection` - Can manipulate org collections
+- Better Auth webhooks - No signature verification
+  - Risk: Attackers could trigger fake org creation/deletion
+
+**Recommendations**:
+- Add `requireAuth` and `requireOrganization` to storage endpoints
+- Implement webhook signature verification (HMAC)
+- Add `requireRole(["admin", "owner"])` to organization management
+
+**2. QR Code Security**
+- Obfuscation is NOT encryption (hex encoding + secret suffix)
+- QR codes are reversible if secret is compromised
+- No integrity check (HMAC) to detect tampering
+- No expiration time on QR codes
+
+**Recommendations**:
+- Implement AES-GCM encryption for QR payloads
+- Add HMAC for integrity verification
+- Include expiration timestamp in QR payload
+- Rotate QR_SECRET periodically
+
+**3. Biometric Security**
+- No liveness detection implemented (spoof_flag exists but not used)
+- No anti-spoofing measures (photos, videos, masks)
+- Face confidence threshold not enforced (relies on Rekognition default)
+- No rate limiting on biometric endpoints
+
+**Recommendations**:
+- Implement AWS Rekognition Face Liveness
+- Add challenge-response for liveness (random head movements)
+- Enforce minimum similarity threshold (currently accepts any match)
+- Add rate limiting to prevent brute-force face matching
+
+**4. Authentication & Authorization**
+- `requireEmailVerified` middleware exists but not used
+- Role checks missing on sensitive endpoints
+- No audit logging for privileged actions
+- Session impersonation exists but not documented/secured
+
+**Recommendations**:
+- Enforce email verification on all protected routes
+- Add comprehensive role-based access control
+- Implement audit logging for admin actions
+- Document and secure impersonation feature
+
+### Functional Limitations 🔧
+
+**1. Geofence Constraints**
+- Only circular geofences supported (polygon schema exists but not implemented)
+- No geofence overlap detection
+- Distance calculation (Haversine) not used in attendance flow
+- `distance_to_geofence_m` field exists but never populated
+- No geofence schedules (time-based activation)
+
+**2. Attendance Gaps**
+- No check-out functionality (only check-in)
+- No shift management or work hours tracking
+- Duplicate check-in prevention not implemented
+- No attendance reports or analytics endpoints
+- GPS coordinates optional but not validated against geofence
+
+**3. Organization & Teams**
+- Announcement endpoints not implemented (schema exists)
+- Permission/leave request endpoints not implemented (schema exists)
+- No organization subscription enforcement (max_users not checked)
+- Team functionality incomplete (no team-specific routes)
+
+**4. Storage Limitations**
+- 50MB upload limit (hardcoded in multer)
+- No file cleanup or garbage collection
+- No CDN integration
+- Local storage not production-ready (no backup)
+- S3 bucket must be public-read or pre-signed URLs needed
+
+**5. Data Management**
+- Soft delete implemented but no restore endpoints
+- No data retention policies
+- No GDPR compliance features (right to deletion, data export)
+- No database migrations in production strategy documented
+
+### Operational Concerns 🏭
+
+**1. Scalability**
+- No caching layer (Redis)
+- No job queue for async tasks (org collection creation blocks request)
+- Database connection pooling not configured
+- No horizontal scaling considerations
+- Rekognition API rate limits not handled
+
+**2. Monitoring & Observability**
+- No structured logging
+- No error tracking (Sentry, etc.)
+- No performance monitoring (APM)
+- No health checks for dependencies (DB, S3, Rekognition)
+- Console.log in production code
+
+**3. Cost Management**
+- AWS Rekognition costs uncapped (per-request pricing)
+- S3 storage costs grow indefinitely
+- No cleanup of unused collections
+- No image optimization before upload
+
+**4. Development Workflow**
+- No automated tests
+- No CI/CD pipeline documented
+- No staging environment mentioned
+- Environment variable management unclear
+- No database seeding or fixtures
+
+### Data Integrity Issues 🗃️
+
+**1. Schema Inconsistencies**
+- Lat/long stored as text instead of numeric types
+- Face confidence as text instead of float
+- JSON strings for polygon coordinates (should use PostGIS or json type)
+- Mixed timestamp field names (createdAt vs created_at)
+
+**2. Missing Constraints**
+- No unique constraint on (user_id, organization_id, check_in_date) for attendance
+- No check constraint on geofence radius (could be negative)
+- No validation on coordinate ranges
+- No foreign key on activeOrganizationId in sessions
+
+**3. Missing Indexes**
+- No index on attendance_event(user_id, check_in) for queries
+- No index on geofence(organization_id, active)
+- No composite indexes for common queries
+
+### Browser & Client Concerns 🌐
+
+**1. CORS Configuration**
+- Credentials enabled with `SameSite=None` requires HTTPS
+- `TRUSTED_ORIGINS` must be carefully configured
+- No CORS error handling documentation
+
+**2. File Uploads**
+- No client-side validation guidance
+- No upload progress tracking
+- No chunked upload for large files
+- Browser compatibility for File API not documented
+
+### Error Handling 📋
+
+**1. Generic Error Messages**
+- Many endpoints return "Internal server error" without details
+- Error codes not consistently used
+- No error correlation IDs for debugging
+- Sensitive data might leak in error logs (console.error with full objects)
+
+**2. Missing Validation**
+- Email format not validated
+- Phone numbers not validated (if added)
+- Weak password requirements (Better Auth defaults)
+- No input sanitization documented
 
 ## Environment Variables
 - Server: `PORT` (default 8080), `TRUSTED_ORIGINS`, `NODE_ENV`
@@ -231,5 +621,70 @@ Base path: `/attendance`
 - Local uploads served at `/upload/*` when `NODE_ENV` is development or unset
 - Base URL for local file links defaults to `http://localhost:3000` (configurable via `BASE_URL`)
 
+## Recommended Next Steps 🚀
+
+### High Priority (Security & Stability)
+1. **Add authentication to storage endpoints** - Critical security gap
+2. **Implement webhook signature verification** - Prevent fake org events
+3. **Add role-based access control** to sensitive endpoints
+4. **Implement liveness detection** for biometric verification
+5. **Add rate limiting** across all endpoints
+6. **Encrypt QR codes** with AES-GCM instead of obfuscation
+7. **Add database indexes** for performance
+8. **Implement proper error handling** with correlation IDs
+
+### Medium Priority (Features & UX)
+1. **Implement check-out functionality** for attendance
+2. **Add duplicate check-in prevention** with time-based rules
+3. **Implement polygon geofences** (schema ready)
+4. **Add GPS validation** against geofence boundaries
+5. **Build announcements API** (schema ready)
+6. **Build permissions/leave API** (schema ready)
+7. **Add attendance reports and analytics**
+8. **Implement organization subscription enforcement**
+
+### Low Priority (Operations & Quality)
+1. **Add automated tests** (unit, integration, e2e)
+2. **Implement structured logging** with log levels
+3. **Add monitoring and alerting** (Sentry, DataDog, etc.)
+4. **Set up CI/CD pipeline**
+5. **Add database migration strategy**
+6. **Implement data retention policies**
+7. **Add GDPR compliance features**
+8. **Optimize images before storage**
+9. **Add CDN for static files**
+10. **Document deployment process**
+
+## Technology Stack Summary 📚
+
+**Runtime & Framework**
+- Bun - Fast JavaScript runtime
+- Hono - Lightweight web framework
+- TypeScript - Type safety
+
+**Database & ORM**
+- PostgreSQL - Primary database
+- Drizzle ORM - Type-safe database access
+- Migrations in `/drizzle` directory
+
+**Authentication**
+- Better Auth - Authentication system
+- Organizations & Teams plugin
+- Session-based auth with cookies
+
+**Cloud Services**
+- AWS Rekognition - Face recognition
+- AWS S3 - File storage (production)
+- Requires AWS credentials
+
+**File Handling**
+- Multer - Local file uploads (development)
+- qrcode - QR code generation
+
+**Utilities**
+- drizzle-orm - Query builder
+- Custom obfuscation module
+
 ## Changelog
-- v1.0.0: Initial documented routes and modules based on current codebase.
+- v1.1.0: Added Geofence module, refactored Attendance to controller/service pattern, comprehensive documentation update
+- v1.0.0: Initial documented routes and modules based on current codebase

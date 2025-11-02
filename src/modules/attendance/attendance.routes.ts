@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { requireAuth, requireOrganization } from "../../middleware/auth-middleware";
-import { checkIn, validateQr } from "./attendance.service";
+import { checkIn, validateQr } from "./attendance.controller";
 
 const attendanceRouter = new Hono();
 
