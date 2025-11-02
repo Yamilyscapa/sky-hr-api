@@ -173,13 +173,52 @@ export const geofence = pgTable("geofence", {
   deleted_at: timestamp("deleted_at"),
 });
 
+// Shift Management Module
+export const shift = pgTable("shift", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organization_id: text("organization_id").references(() => organization.id).notNull(),
+  name: text("name").notNull(), // e.g., "Morning Shift", "Night Shift"
+  start_time: text("start_time").notNull(), // "09:00:00" format (HH:MM:SS)
+  end_time: text("end_time").notNull(), // "17:00:00" format (HH:MM:SS)
+  break_minutes: integer("break_minutes").notNull().default(0), // Total break allowance
+  days_of_week: text("days_of_week").array().notNull(), // ["monday", "tuesday", ...]
+  color: text("color"), // For UI representation (hex color)
+  active: boolean("active").notNull().default(true),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const user_schedule = pgTable("user_schedule", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  user_id: text("user_id").references(() => users.id).notNull(),
+  shift_id: uuid("shift_id").references(() => shift.id).notNull(),
+  organization_id: text("organization_id").references(() => organization.id).notNull(),
+  effective_from: timestamp("effective_from").notNull(),
+  effective_until: timestamp("effective_until"), // null = indefinite
+  created_at: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const organization_settings = pgTable("organization_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organization_id: text("organization_id").references(() => organization.id).unique().notNull(),
+  grace_period_minutes: integer("grace_period_minutes").notNull().default(5),
+  timezone: text("timezone").notNull().default("UTC"),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Attendance Module
 export const attendance_event = pgTable("attendance_event", {
   id: uuid("id").primaryKey().defaultRandom(),
   user_id: text("user_id").references(() => users.id),
   check_in: timestamp("check_in").notNull(),
+  check_out: timestamp("check_out"), // null if not checked out yet
   is_verified: boolean("is_verified").notNull().default(false),
   organization_id: text("organization_id").references(() => organization.id),
+  shift_id: uuid("shift_id").references(() => shift.id),
+  status: text("status").notNull().default("on_time"), // "on_time", "late", "early", "absent", "out_of_bounds"
+  is_within_geofence: boolean("is_within_geofence").notNull().default(true),
+  notes: text("notes"), // Admin notes or auto-generated reason
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
   deleted_at: timestamp("deleted_at"),
@@ -229,6 +268,12 @@ export const organizationRelations = relations(
     attendanceEvents: many(attendance_event),
     announcements: many(announcement),
     geofences: many(geofence),
+    shifts: many(shift),
+    userSchedules: many(user_schedule),
+    settings: one(organization_settings, {
+      fields: [organization.id],
+      references: [organization_settings.organization_id],
+    }),
     // Better Auth organization plugin relations
     members: many(member),
     invitations: many(invitation),
@@ -239,6 +284,7 @@ export const organizationRelations = relations(
 export const usersRelations = relations(users, ({ one, many }) => ({
   permissions: many(permissions),
   attendanceEvents: many(attendance_event),
+  userSchedules: many(user_schedule),
   // Better Auth relations
   sessions: many(sessions),
   accounts: many(accounts),
@@ -285,8 +331,43 @@ export const attendanceEventRelations = relations(
       fields: [attendance_event.organization_id],
       references: [organization.id],
     }),
+    shift: one(shift, {
+      fields: [attendance_event.shift_id],
+      references: [shift.id],
+    }),
   }),
 );
+
+export const shiftRelations = relations(shift, ({ one, many }) => ({
+  organization: one(organization, {
+    fields: [shift.organization_id],
+    references: [organization.id],
+  }),
+  userSchedules: many(user_schedule),
+  attendanceEvents: many(attendance_event),
+}));
+
+export const userScheduleRelations = relations(user_schedule, ({ one }) => ({
+  user: one(users, {
+    fields: [user_schedule.user_id],
+    references: [users.id],
+  }),
+  shift: one(shift, {
+    fields: [user_schedule.shift_id],
+    references: [shift.id],
+  }),
+  organization: one(organization, {
+    fields: [user_schedule.organization_id],
+    references: [organization.id],
+  }),
+}));
+
+export const organizationSettingsRelations = relations(organization_settings, ({ one }) => ({
+  organization: one(organization, {
+    fields: [organization_settings.organization_id],
+    references: [organization.id],
+  }),
+}));
 
 export const announcementRelations = relations(announcement, ({ one, many }) => ({
   organization: one(organization, {
