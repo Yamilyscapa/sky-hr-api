@@ -210,6 +210,159 @@ QR Code Integration:
 - `QR_SECRET` base64-encoded preferred. Fallback: literal value. Default: `skyhr-secret-2024`
 - File naming pattern: `${location_id}-0-location.png`
 
+### User-Geofence Management
+Base path: `/user-geofence`
+
+The User-Geofence module manages assignments between users and geofences, allowing organizations to control which users can check in at specific locations.
+
+- POST `/user-geofence/assign`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON: 
+    ```json
+    {
+      "user_id": "string (required)",
+      "geofence_ids": "string[] (optional if assign_all is true)",
+      "assign_all": "boolean (optional)"
+    }
+    ```
+  - Behavior:
+    - If `assign_all: true`, assigns user to all geofences in the organization
+    - Otherwise, assigns user to specified geofence_ids
+    - Skips if assignment already exists
+  - Response 200:
+    ```json
+    {
+      "message": "User assigned to geofences",
+      "data": {
+        "new_assignments": "number",
+        "existing_assignments": "number",
+        "total_geofences": "number"
+      }
+    }
+    ```
+
+- POST `/user-geofence/remove`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON: `{ user_id: string, geofence_id: string }`
+  - Response 200: `{ message: "Geofence removed from user", data: { removed: boolean } }`
+
+- POST `/user-geofence/remove-all`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON: `{ user_id: string }`
+  - Response 200: `{ message: "All geofences removed from user", data: { removed_count: number } }`
+
+- GET `/user-geofence/user-geofences`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Query: `?user_id=<user_id>`
+  - Response 200: `{ message: "Geofences found", data: GeofenceObject[] }`
+
+- GET `/user-geofence/geofence-users`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Query: `?geofence_id=<geofence_id>`
+  - Response 200: `{ message: "Users found", data: UserObject[] }`
+
+- POST `/user-geofence/check-access`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON: `{ user_id: string, geofence_id: string }`
+  - Response 200: `{ message: "Access check complete", data: { has_access: boolean } }`
+
+### Schedules
+Base path: `/schedules`
+
+The Schedules module manages shift definitions and user shift assignments for organizations.
+
+**Shift Management** (Admin operations):
+- POST `/schedules/shifts/create`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON:
+    ```json
+    {
+      "name": "string (required)",
+      "start_time": "string (required, HH:MM:SS or HH:MM)",
+      "end_time": "string (required, HH:MM:SS or HH:MM)",
+      "days_of_week": "string[] (required, e.g. ['monday', 'tuesday'])",
+      "break_minutes": "number (optional, default: 0)",
+      "color": "string (optional, hex color)",
+      "active": "boolean (optional, default: true)"
+    }
+    ```
+  - Response 200: `{ message: "Shift created", data: ShiftObject }`
+  - Response 400: Invalid time format or missing required fields
+
+- GET `/schedules/shifts`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Response 200: `{ message: "Shifts found", data: ShiftObject[] }`
+
+- PUT `/schedules/shifts/:id`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON: Same fields as create (all optional except those being updated)
+  - Response 200: `{ message: "Shift updated", data: ShiftObject }`
+  - Response 404: Shift not found
+
+**Shift Assignment**:
+- POST `/schedules/assign`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON:
+    ```json
+    {
+      "user_id": "string (required)",
+      "shift_id": "string (required, uuid)",
+      "effective_from": "string (required, ISO timestamp)",
+      "effective_until": "string (optional, ISO timestamp, null = indefinite)"
+    }
+    ```
+  - Response 200: `{ message: "Shift assigned", data: UserScheduleObject }`
+  - Response 400: Invalid dates or shift not found
+
+**User Schedule Retrieval**:
+- GET `/schedules/user/:userId`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Query Parameters:
+    - `start_date`: string (optional) - Filter from date
+    - `end_date`: string (optional) - Filter to date
+  - Response 200:
+    ```json
+    {
+      "message": "Schedule found",
+      "data": {
+        "user_id": "string",
+        "schedules": "UserScheduleObject[]",
+        "current_shift": "ShiftObject | null"
+      }
+    }
+    ```
+
+Shift Object:
+```json
+{
+  "id": "uuid",
+  "name": "string",
+  "start_time": "string (HH:MM:SS)",
+  "end_time": "string (HH:MM:SS)",
+  "break_minutes": "number",
+  "days_of_week": "string[]",
+  "color": "string | null",
+  "active": "boolean",
+  "organization_id": "string",
+  "created_at": "timestamp",
+  "updated_at": "timestamp"
+}
+```
+
+User Schedule Object:
+```json
+{
+  "id": "uuid",
+  "user_id": "string",
+  "shift_id": "string (uuid)",
+  "organization_id": "string",
+  "effective_from": "timestamp",
+  "effective_until": "timestamp | null",
+  "created_at": "timestamp",
+  "shift": "ShiftObject"
+}
+```
+
 ### Attendance
 Base path: `/attendance`
 
@@ -257,6 +410,74 @@ The Attendance module manages employee check-in with multi-factor verification (
   - Response 403: QR mismatch, location inactive, or face doesn't match user
   - Response 500: Failed to create attendance record
 
+- POST `/attendance/check-out`
+  - Auth: `requireAuth`, `requireOrganization`
+  - FormData:
+    - `attendance_event_id`: string (optional) - Specific event ID to check out. If omitted, finds most recent check-in without check-out
+    - `image`: File (optional) - Face image for verification
+    - `latitude`: string (optional) - GPS latitude
+    - `longitude`: string (optional) - GPS longitude
+  - Behavior:
+    - Finds the most recent attendance event without check-out for the user
+    - Optionally verifies face if image provided
+    - Updates the attendance_event with check_out timestamp
+  - Response 200:
+    ```json
+    {
+      "message": "Check-out recorded",
+      "data": {
+        "id": "uuid",
+        "check_in": "timestamp",
+        "check_out": "timestamp",
+        "user_id": "string",
+        "organization_id": "string"
+      }
+    }
+    ```
+  - Response 400: No active check-in found
+  - Response 404: Attendance event not found (if event_id provided)
+
+- POST `/attendance/admin/mark-absences`
+  - Auth: `requireAuth`, `requireOrganization` (should also require admin role)
+  - JSON:
+    - `user_ids`: string[] (required) - Array of user IDs to mark as absent
+    - `date`: string (required) - Date in ISO format (YYYY-MM-DD)
+    - `notes`: string (optional) - Reason or notes for absence
+  - Behavior: Creates attendance events with status "absent" for specified users on the given date
+  - Response 200: `{ message, data: { marked_count, events: [...] } }`
+
+- PUT `/attendance/admin/update-status/:eventId`
+  - Auth: `requireAuth`, `requireOrganization` (should also require admin role)
+  - JSON:
+    - `status`: string (required) - New status: "on_time", "late", "early", "absent", "out_of_bounds"
+    - `notes`: string (optional) - Admin notes
+  - Response 200: `{ message, data: AttendanceEvent }`
+  - Response 404: Event not found
+
+- GET `/attendance/report`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Query Parameters:
+    - `start_date`: string (optional) - ISO date format
+    - `end_date`: string (optional) - ISO date format
+    - `user_id`: string (optional) - Filter by specific user
+    - `status`: string (optional) - Filter by status
+  - Response 200:
+    ```json
+    {
+      "message": "Report generated",
+      "data": {
+        "total_records": "number",
+        "events": "AttendanceEvent[]",
+        "summary": {
+          "on_time": "number",
+          "late": "number",
+          "absent": "number",
+          "early": "number"
+        }
+      }
+    }
+    ```
+
 Service Functions:
 - `getQrSecret()`: Retrieves and decodes QR secret from environment
 - `parseQrPayload(qrData)`: Deobfuscates QR data to extract organization and location IDs
@@ -297,15 +518,48 @@ Service Functions:
   - `active: boolean` - Enable/disable without deleting
   - `organization_id` - Org-scoped
 
-- **`attendance_event`**: Attendance check-in records
-  - `check_in: timestamp` - Check-in time
+- **`attendance_event`**: Attendance check-in and check-out records
+  - `check_in: timestamp` - Check-in time (required)
+  - `check_out: timestamp` - Check-out time (nullable)
   - `is_verified: boolean` - Verification status
+  - `status: text` - "on_time", "late", "early", "absent", "out_of_bounds"
   - `source: text` - "qr_face", "manual", "fingerprint", etc.
+  - `shift_id: uuid` - Reference to assigned shift (nullable)
+  - `is_within_geofence: boolean` - Whether check-in was within geofence
   - `latitude/longitude: text` - GPS coordinates (optional)
   - `face_confidence: text` - AWS Rekognition similarity score
   - `liveness_score: text` - Anti-spoofing score (not currently used)
   - `spoof_flag: boolean` - Potential spoof detection flag
   - `distance_to_geofence_m: integer` - Distance in meters (not currently calculated)
+  - `notes: text` - Admin notes or auto-generated reason
+  - `organization_id` - Organization context
+  - `user_id` - User who checked in/out
+
+- **`shift`**: Shift definitions for organizations
+  - `name: text` - Shift name (e.g., "Morning Shift")
+  - `start_time: text` - Start time in HH:MM:SS format
+  - `end_time: text` - End time in HH:MM:SS format
+  - `break_minutes: integer` - Total break allowance in minutes
+  - `days_of_week: text[]` - Array of day names (monday, tuesday, etc.)
+  - `color: text` - Hex color for UI representation
+  - `active: boolean` - Whether shift is active
+  - `organization_id` - Organization context
+
+- **`user_schedule`**: User shift assignments
+  - `user_id: text` - User assigned to shift
+  - `shift_id: uuid` - Shift being assigned
+  - `effective_from: timestamp` - When assignment starts
+  - `effective_until: timestamp` - When assignment ends (null = indefinite)
+  - `organization_id` - Organization context
+
+- **`user_geofence`**: Junction table for user-geofence assignments
+  - `user_id: text` - User assigned to geofence
+  - `geofence_id: uuid` - Geofence being assigned
+  - `organization_id` - Organization context (for data isolation)
+
+- **`organization_settings`**: Organization-level settings
+  - `grace_period_minutes: integer` - Grace period for late check-ins (default: 5)
+  - `timezone: text` - Organization timezone (default: UTC)
 
 - **`permissions`**: Leave/permission requests
   - `documents_url: text` - Supporting documents
@@ -504,11 +758,12 @@ Tables with `deleted_at: timestamp` field support soft deletion:
 - No geofence schedules (time-based activation)
 
 **2. Attendance Gaps**
-- No check-out functionality (only check-in)
-- No shift management or work hours tracking
+- ✅ Check-out functionality implemented
+- ✅ Shift management implemented
 - Duplicate check-in prevention not implemented
-- No attendance reports or analytics endpoints
+- ✅ Attendance reports endpoint exists
 - GPS coordinates optional but not validated against geofence
+- Attendance status calculation (on_time, late, etc.) may need shift context
 
 **3. Organization & Teams**
 - Announcement endpoints not implemented (schema exists)
@@ -686,5 +941,6 @@ Tables with `deleted_at: timestamp` field support soft deletion:
 - Custom obfuscation module
 
 ## Changelog
+- v1.2.0: Added Schedules module (shift management), User-Geofence module, Check-out functionality, Attendance reports, comprehensive documentation update with all endpoints
 - v1.1.0: Added Geofence module, refactored Attendance to controller/service pattern, comprehensive documentation update
 - v1.0.0: Initial documented routes and modules based on current codebase

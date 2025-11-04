@@ -14,7 +14,7 @@ import {
 } from "./attendance.service";
 import { searchFacesByImageForOrganization } from "../biometrics/biometrics.service";
 import { db } from "../../db";
-import { attendance_event } from "../../db/schema";
+import { attendance_event, member, organization } from "../../db/schema";
 import { and, eq, or } from "drizzle-orm";
 
 export async function validateQr(c: Context): Promise<Response> {
@@ -45,14 +45,15 @@ export async function validateQr(c: Context): Promise<Response> {
 
 export async function checkIn(c: Context): Promise<Response> {
   try {
-    const form = await c.req.formData();
-    const qrData = form.get("qr_data") as string;
-    const image = form.get("image") as File;
-    const latitude = form.get("latitude") as string;
-    const longitude = form.get("longitude") as string;
+    const body = await c.req.json();
+    const organizationId = body?.organization_id as string;
+    const locationId = body?.location_id as string;
+    const imageBase64 = body?.image as string;
+    const latitude = body?.latitude as string;
+    const longitude = body?.longitude as string;
 
-    if (!qrData || !image) {
-      return errorResponse(c, "qr_data and image are required", ErrorCodes.BAD_REQUEST);
+    if (!organizationId || !locationId || !imageBase64) {
+      return errorResponse(c, "organization_id, location_id, and image (base64) are required", ErrorCodes.BAD_REQUEST);
     }
 
     if (!latitude || !longitude) {
@@ -60,18 +61,36 @@ export async function checkIn(c: Context): Promise<Response> {
     }
 
     const user = c.get("user");
-    const organization = c.get("organization");
-    if (!user || !organization) {
+    if (!user) {
       return errorResponse(c, "Unauthorized", ErrorCodes.UNAUTHORIZED);
     }
 
-    // 1) QR validation
-    const payload = parseQrPayload(qrData);
-    if (payload.organization_id !== organization.id) {
-      return errorResponse(c, "QR organization mismatch", ErrorCodes.FORBIDDEN);
+    // 1) Validate user belongs to the specified organization
+    const userMembership = await db
+      .select()
+      .from(member)
+      .where(and(eq(member.userId, user.id), eq(member.organizationId, organizationId)))
+      .limit(1);
+
+    if (!userMembership || userMembership.length === 0) {
+      return errorResponse(c, "User does not belong to the specified organization", ErrorCodes.FORBIDDEN);
     }
 
-    const gf = await findActiveGeofence(payload.location_id, organization.id);
+    // 2) Get organization details
+    const orgDetails = await db
+      .select()
+      .from(organization)
+      .where(eq(organization.id, organizationId))
+      .limit(1);
+
+    if (!orgDetails || orgDetails.length === 0) {
+      return errorResponse(c, "Organization not found", ErrorCodes.NOT_FOUND);
+    }
+
+    const orgData = orgDetails[0];
+
+    // 3) Validate location belongs to organization and is active
+    const gf = await findActiveGeofence(locationId, organizationId);
     if (!gf) {
       return errorResponse(c, "Location not allowed or inactive", ErrorCodes.FORBIDDEN);
     }
@@ -95,8 +114,8 @@ export async function checkIn(c: Context): Promise<Response> {
       radius: gf.radius,
     });
 
-    // 3) Check for duplicate check-in today
-    const existingCheckIn = await findExistingCheckIn(user.id, new Date(), organization.id);
+    // 4) Check for duplicate check-in today
+    const existingCheckIn = await findExistingCheckIn(user.id, new Date(), organizationId);
     if (existingCheckIn) {
       return errorResponse(
         c,
@@ -105,9 +124,19 @@ export async function checkIn(c: Context): Promise<Response> {
       );
     }
 
-    // 4) Biometric verification (search within org)
-    const imageBuffer = Buffer.from(await image.arrayBuffer());
-    const matches = await searchFacesByImageForOrganization(imageBuffer, organization.id);
+    // 5) Biometric verification (search within org)
+    // Convert base64 string to Buffer
+    let imageBuffer: Buffer;
+    try {
+      // Handle both with and without data URL prefix (data:image/jpeg;base64,...)
+      const base64Data = imageBase64.includes(",") 
+        ? (imageBase64.split(",")[1] || imageBase64) 
+        : imageBase64;
+      imageBuffer = Buffer.from(base64Data, "base64");
+    } catch (e) {
+      return errorResponse(c, "Invalid base64 image format", ErrorCodes.BAD_REQUEST);
+    }
+    const matches = await searchFacesByImageForOrganization(imageBuffer, organizationId);
     const best = matches?.[0];
     const externalImageId = best?.Face?.ExternalImageId;
     const similarity = best?.Similarity ?? 0;
@@ -116,12 +145,12 @@ export async function checkIn(c: Context): Promise<Response> {
       return errorResponse(c, "Face does not match the current user", ErrorCodes.FORBIDDEN);
     }
 
-    // 5) Calculate attendance status based on shift
+    // 6) Calculate attendance status based on shift
     const checkInTime = new Date();
     const { status: baseStatus, shiftId, notes: statusNotes } = await calculateAttendanceStatus(
       checkInTime,
       user.id,
-      organization.id
+      organizationId
     );
 
     // If out of geofence bounds, override status
@@ -133,10 +162,10 @@ export async function checkIn(c: Context): Promise<Response> {
       notes = `Check-in ${distance}m from geofence (radius: ${gf.radius}m). ${statusNotes || ""}`.trim();
     }
 
-    // 6) Create attendance event with full metadata
+    // 7) Create attendance event with full metadata
     const record = await createAttendanceEvent({
       userId: user.id,
-      organizationId: organization.id,
+      organizationId: organizationId,
       shiftId,
       status: finalStatus,
       isWithinGeofence: isWithin,
