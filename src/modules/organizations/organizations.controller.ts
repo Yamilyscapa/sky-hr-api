@@ -116,9 +116,12 @@ export const ensureCollection = async (c: Context) => {
       return errorResponse(c, "Organization ID is required", 400);
     }
     
+    console.log(`[ensureCollection] Manual collection creation requested for organization: ${organizationId}`);
+    
     const collectionId = await ensureOrganizationCollection(organizationId);
     
     if (collectionId) {
+      console.log(`[ensureCollection] Successfully ensured collection ${collectionId} for organization: ${organizationId}`);
       return successResponse(c, {
         message: "Organization collection ensured successfully",
         data: { 
@@ -127,10 +130,15 @@ export const ensureCollection = async (c: Context) => {
         }
       });
     } else {
+      console.error(`[ensureCollection] Failed to ensure collection for organization: ${organizationId}`);
       return errorResponse(c, "Failed to ensure organization collection", 500);
     }
   } catch (error) {
-    console.error("Ensure collection error:", error);
+    console.error(`[ensureCollection] Error ensuring collection:`, {
+      organizationId: c.req.param("organizationId"),
+      error: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined,
+    });
     return errorResponse(c, "Internal server error", 500);
   }
 };

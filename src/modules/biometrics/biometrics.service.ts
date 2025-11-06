@@ -319,16 +319,47 @@ export const searchFacesByImageForOrganizationWithEnsure = async (
  */
 export const createCollection = async (collectionId?: string): Promise<boolean> => {
   try {
+    // Validate AWS credentials before attempting to create collection
+    try {
+      validateRekognitionConfig();
+    } catch (configError) {
+      console.error(`[createCollection] AWS Rekognition configuration invalid:`, {
+        error: configError instanceof Error ? configError.message : String(configError),
+      });
+      return false;
+    }
+    
     const collection = collectionId ?? rekognitionSettings.collectionId;
+    
+    console.log(`[createCollection] Attempting to create collection: ${collection}`);
 
     const command = new CreateCollectionCommand({
       CollectionId: collection,
     });
 
     await rekognitionClient.send(command);
+    console.log(`[createCollection] Successfully created Rekognition collection: ${collection}`);
     return true;
-  } catch (error) {
-    console.error("Collection creation failed:", error);
+  } catch (error: any) {
+    // Handle ResourceAlreadyExistsException as success (idempotent behavior)
+    if (error.name === "ResourceAlreadyExistsException" || error.name === "ResourceInUseException") {
+      console.log(`[createCollection] Rekognition collection already exists: ${collectionId ?? rekognitionSettings.collectionId} (treating as success)`);
+      return true;
+    }
+    
+    // Log detailed error information
+    const errorCode = error.name || error.$metadata?.httpStatusCode || "UNKNOWN";
+    const errorMessage = error.message || String(error);
+    const collectionName = collectionId ?? rekognitionSettings.collectionId;
+    
+    console.error(`[createCollection] Failed to create Rekognition collection: ${collectionName}`, {
+      errorCode,
+      errorMessage,
+      errorName: error.name,
+      awsRequestId: error.$metadata?.requestId,
+      fullError: error,
+    });
+    
     return false;
   }
 };
@@ -345,9 +376,27 @@ export const deleteCollection = async (collectionId?: string): Promise<boolean> 
     });
 
     await rekognitionClient.send(command);
+    console.log(`Successfully deleted Rekognition collection: ${collection}`);
     return true;
-  } catch (error) {
-    console.error("Collection deletion failed:", error);
+  } catch (error: any) {
+    // Handle ResourceNotFoundException as success (idempotent behavior)
+    if (error.name === "ResourceNotFoundException") {
+      console.log(`Rekognition collection not found: ${collectionId ?? rekognitionSettings.collectionId} (treating as success)`);
+      return true;
+    }
+    
+    // Log detailed error information
+    const errorCode = error.name || error.$metadata?.httpStatusCode || "UNKNOWN";
+    const errorMessage = error.message || String(error);
+    const collectionName = collectionId ?? rekognitionSettings.collectionId;
+    
+    console.error(`Failed to delete Rekognition collection: ${collectionName}`, {
+      errorCode,
+      errorMessage,
+      errorName: error.name,
+      awsRequestId: error.$metadata?.requestId,
+    });
+    
     return false;
   }
 };

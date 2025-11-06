@@ -30,29 +30,95 @@ const generateCollectionId = (organizationId: string): string => {
  */
 export const createOrganizationCollection = async (organizationId: string): Promise<string | null> => {
   try {
+    // First, verify the organization exists (with retry for timing issues)
+    let org = null;
+    let retries = 3;
+    while (!org && retries > 0) {
+      org = await getOrganization(organizationId);
+      if (!org) {
+        retries--;
+        if (retries > 0) {
+          console.log(`Organization ${organizationId} not found, retrying in 100ms... (${retries} retries left)`);
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+    }
+    
+    if (!org) {
+      console.error(`Organization ${organizationId} not found after retries`);
+      return null;
+    }
+    
+    // If collection already exists, return it
+    if (org.rekognition_collection_id) {
+      console.log(`Organization ${organizationId} already has Rekognition collection: ${org.rekognition_collection_id}`);
+      return org.rekognition_collection_id;
+    }
+    
     const collectionId = generateCollectionId(organizationId);
+    
+    console.log(`Attempting to create Rekognition collection ${collectionId} for organization: ${organizationId}`);
     
     // Create the collection in AWS Rekognition
     const success = await createCollection(collectionId);
     
     if (success) {
-      // Update the organization record with the collection ID
-      await db
-        .update(organization)
-        .set({ 
-          rekognition_collection_id: collectionId,
-          updated_at: new Date()
-        })
-        .where(eq(organization.id, organizationId));
+      // Retry the database update (in case of timing issues)
+      retries = 3;
+      let updateSuccess = false;
+      while (!updateSuccess && retries > 0) {
+        try {
+          const result = await db
+            .update(organization)
+            .set({ 
+              rekognition_collection_id: collectionId,
+              updated_at: new Date()
+            })
+            .where(eq(organization.id, organizationId))
+            .returning();
+          
+          if (result && result.length > 0) {
+            updateSuccess = true;
+            console.log(`Successfully created and linked Rekognition collection ${collectionId} for organization: ${organizationId}`);
+            return collectionId;
+          }
+        } catch (dbError) {
+          retries--;
+          if (retries > 0) {
+            console.warn(`Failed to update organization record, retrying... (${retries} retries left):`, {
+              organizationId,
+              collectionId,
+              error: dbError instanceof Error ? dbError.message : String(dbError),
+            });
+            await new Promise(resolve => setTimeout(resolve, 100));
+          } else {
+            console.error(`Failed to update organization record with collection ID after retries:`, {
+              organizationId,
+              collectionId,
+              error: dbError instanceof Error ? dbError.message : String(dbError),
+            });
+          }
+        }
+      }
       
-      console.log(`Created Rekognition collection: ${collectionId} for organization: ${organizationId}`);
+      // Collection was created but DB update failed - still return success
+      if (!updateSuccess) {
+        console.warn(`Collection ${collectionId} created but DB update failed for organization: ${organizationId}`);
+      }
       return collectionId;
     }
     
-    console.error(`Failed to create Rekognition collection for organization: ${organizationId}`);
+    console.error(`Failed to create Rekognition collection for organization: ${organizationId}`, {
+      organizationId,
+      collectionId,
+    });
     return null;
   } catch (error) {
-    console.error(`Error creating organization collection:`, error);
+    console.error(`Error creating organization collection:`, {
+      organizationId,
+      error: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined,
+    });
     return null;
   }
 };
@@ -66,29 +132,50 @@ export const deleteOrganizationCollection = async (organizationId: string): Prom
     const org = await getOrganization(organizationId);
     
     if (!org?.rekognition_collection_id) {
-      console.warn(`No collection found for organization: ${organizationId}`);
+      console.warn(`No collection found for organization: ${organizationId} (treating as success)`);
       return true; // Consider it successful if no collection exists
     }
     
+    const collectionId = org.rekognition_collection_id;
+    console.log(`Attempting to delete Rekognition collection ${collectionId} for organization: ${organizationId}`);
+    
     // Delete the collection from AWS Rekognition
-    const success = await deleteCollection(org.rekognition_collection_id);
+    const success = await deleteCollection(collectionId);
     
     if (success) {
-      // Remove the collection ID from the organization record
-      await db
-        .update(organization)
-        .set({ 
-          rekognition_collection_id: null,
-          updated_at: new Date()
-        })
-        .where(eq(organization.id, organizationId));
-      
-      console.log(`Deleted Rekognition collection: ${org.rekognition_collection_id} for organization: ${organizationId}`);
+      try {
+        // Remove the collection ID from the organization record
+        await db
+          .update(organization)
+          .set({ 
+            rekognition_collection_id: null,
+            updated_at: new Date()
+          })
+          .where(eq(organization.id, organizationId));
+        
+        console.log(`Successfully deleted and unlinked Rekognition collection ${collectionId} for organization: ${organizationId}`);
+      } catch (dbError) {
+        console.error(`Failed to update organization record after collection deletion:`, {
+          organizationId,
+          collectionId,
+          error: dbError instanceof Error ? dbError.message : String(dbError),
+        });
+        // Collection was deleted but DB update failed - still return success
+      }
+    } else {
+      console.error(`Failed to delete Rekognition collection for organization: ${organizationId}`, {
+        organizationId,
+        collectionId,
+      });
     }
     
     return success;
   } catch (error) {
-    console.error(`Error deleting organization collection:`, error);
+    console.error(`Error deleting organization collection:`, {
+      organizationId,
+      error: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined,
+    });
     return false;
   }
 };
@@ -106,7 +193,11 @@ export const getOrganization = async (organizationId: string): Promise<Organizat
     
     return result[0] || null;
   } catch (error) {
-    console.error(`Error fetching organization:`, error);
+    console.error(`Error fetching organization:`, {
+      organizationId,
+      error: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined,
+    });
     return null;
   }
 };
@@ -119,7 +210,10 @@ export const getOrganizationCollectionId = async (organizationId: string): Promi
     const org = await getOrganization(organizationId);
     return org?.rekognition_collection_id || null;
   } catch (error) {
-    console.error(`Error fetching organization collection ID:`, error);
+    console.error(`Error fetching organization collection ID:`, {
+      organizationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 };
@@ -138,13 +232,19 @@ export const ensureOrganizationCollection = async (organizationId: string): Prom
     
     // If collection already exists, return it
     if (org.rekognition_collection_id) {
+      console.log(`Organization ${organizationId} already has Rekognition collection: ${org.rekognition_collection_id}`);
       return org.rekognition_collection_id;
     }
     
     // Create new collection
+    console.log(`Ensuring Rekognition collection exists for organization: ${organizationId}`);
     return await createOrganizationCollection(organizationId);
   } catch (error) {
-    console.error(`Error ensuring organization collection:`, error);
+    console.error(`Error ensuring organization collection:`, {
+      organizationId,
+      error: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined,
+    });
     return null;
   }
 };
