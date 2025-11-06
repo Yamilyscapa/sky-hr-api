@@ -15,7 +15,7 @@ import {
 import { searchFacesByImageForOrganization } from "../biometrics/biometrics.service";
 import { db } from "../../db";
 import { attendance_event, member, organization } from "../../db/schema";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, gte, lte, desc } from "drizzle-orm";
 
 export async function validateQr(c: Context): Promise<Response> {
   try {
@@ -370,6 +370,85 @@ export async function updateAttendanceStatusController(c: Context): Promise<Resp
   } catch (e) {
     console.error("Update status error:", e);
     return errorResponse(c, "Failed to update attendance status", ErrorCodes.INTERNAL_SERVER_ERROR);
+  }
+}
+
+export async function getAttendanceEvents(c: Context): Promise<Response> {
+  try {
+    const organization = c.get("organization");
+    const user = c.get("user");
+
+    if (!organization) {
+      return errorResponse(c, "Organization is required", ErrorCodes.UNAUTHORIZED);
+    }
+
+    // Get query parameters for filtering
+    const userId = c.req.query("user_id");
+    const startDate = c.req.query("start_date");
+    const endDate = c.req.query("end_date");
+    const status = c.req.query("status");
+
+    // Build query conditions
+    const conditions = [eq(attendance_event.organization_id, organization.id)];
+
+    // Filter by user if provided, otherwise return all events for organization
+    if (userId) {
+      conditions.push(eq(attendance_event.user_id, userId));
+    }
+
+    // Filter by date range if provided
+    if (startDate) {
+      const start = new Date(startDate);
+      conditions.push(gte(attendance_event.check_in, start));
+    }
+
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      conditions.push(lte(attendance_event.check_in, end));
+    }
+
+    // Filter by status if provided
+    if (status) {
+      conditions.push(eq(attendance_event.status, status));
+    }
+
+    const events = await db
+      .select()
+      .from(attendance_event)
+      .where(and(...conditions))
+      .orderBy(desc(attendance_event.check_in));
+
+    return successResponse(c, {
+      message: "Attendance events retrieved successfully",
+      data: {
+        total: events.length,
+        events: events.map((event) => ({
+          id: event.id,
+          user_id: event.user_id,
+          organization_id: event.organization_id,
+          check_in: event.check_in,
+          check_out: event.check_out,
+          status: event.status,
+          is_verified: event.is_verified,
+          is_within_geofence: event.is_within_geofence,
+          distance_to_geofence_m: event.distance_to_geofence_m,
+          latitude: event.latitude,
+          longitude: event.longitude,
+          source: event.source,
+          face_confidence: event.face_confidence,
+          liveness_score: event.liveness_score,
+          spoof_flag: event.spoof_flag,
+          shift_id: event.shift_id,
+          notes: event.notes,
+          created_at: event.created_at,
+          updated_at: event.updated_at,
+        })),
+      },
+    });
+  } catch (e) {
+    console.error("Get attendance events error:", e);
+    return errorResponse(c, "Failed to retrieve attendance events", ErrorCodes.INTERNAL_SERVER_ERROR);
   }
 }
 
