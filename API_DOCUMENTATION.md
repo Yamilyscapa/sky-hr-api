@@ -437,6 +437,52 @@ The Attendance module manages employee check-in with multi-factor verification (
   - Response 400: No active check-in found
   - Response 404: Attendance event not found (if event_id provided)
 
+- GET `/attendance/events`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Query Parameters:
+    - `user_id`: string (optional) - Filter by specific user. If omitted, returns all events for the organization
+    - `start_date`: string (optional) - ISO date format (YYYY-MM-DD) - Filter events from this date
+    - `end_date`: string (optional) - ISO date format (YYYY-MM-DD) - Filter events until this date
+    - `status`: string (optional) - Filter by status: "on_time", "late", "early", "absent", "out_of_bounds"
+  - Behavior: 
+    - Retrieves all attendance events for the organization with optional filtering
+    - Results are ordered by check-in time (most recent first)
+    - Returns complete event details including biometric data, geolocation, and verification status
+  - Response 200:
+    ```json
+    {
+      "message": "Attendance events retrieved successfully",
+      "data": {
+        "total": "number",
+        "events": [
+          {
+            "id": "uuid",
+            "user_id": "string",
+            "organization_id": "string",
+            "check_in": "timestamp",
+            "check_out": "timestamp | null",
+            "status": "string",
+            "is_verified": "boolean",
+            "is_within_geofence": "boolean",
+            "distance_to_geofence_m": "number | null",
+            "latitude": "string | null",
+            "longitude": "string | null",
+            "source": "string",
+            "face_confidence": "string | null",
+            "liveness_score": "string | null",
+            "spoof_flag": "boolean",
+            "shift_id": "uuid | null",
+            "notes": "string | null",
+            "created_at": "timestamp",
+            "updated_at": "timestamp"
+          }
+        ]
+      }
+    }
+    ```
+  - Response 401: Organization required
+  - Response 500: Failed to retrieve attendance events
+
 - POST `/attendance/admin/mark-absences`
   - Auth: `requireAuth`, `requireOrganization` (should also require admin role)
   - JSON:

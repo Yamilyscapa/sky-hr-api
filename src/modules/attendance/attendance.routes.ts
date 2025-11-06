@@ -7,6 +7,7 @@ import {
   markAbsences,
   updateAttendanceStatusController,
   getAttendanceReport,
+  getAttendanceEvents,
 } from "./attendance.controller";
 
 const attendanceRouter = new Hono();
@@ -21,6 +22,9 @@ attendanceRouter.post("/check-out", requireAuth, requireOrganization, checkOut);
 // Admin endpoints (ideally would use requireRole(['admin', 'owner']) but not fully implemented)
 attendanceRouter.post("/admin/mark-absences", requireAuth, requireOrganization, markAbsences);
 attendanceRouter.put("/admin/update-status/:eventId", requireAuth, requireOrganization, updateAttendanceStatusController);
+
+// Get attendance events (supports filtering)
+attendanceRouter.get("/events", requireAuth, requireOrganization, getAttendanceEvents);
 
 // Reports
 attendanceRouter.get("/report", requireAuth, requireOrganization, getAttendanceReport);
