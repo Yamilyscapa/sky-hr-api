@@ -16,6 +16,12 @@ export const organizationRoleEnum = pgEnum("organization_role", [
   "member",   // Miembro regular, control limitado
 ]);
 
+export const announcementPriorityEnum = pgEnum("announcement_priority", [
+  "normal",
+  "important",
+  "urgent",
+]);
+
 // Business Module Tables
 export const subscription = pgTable("subscription", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -251,13 +257,17 @@ export const attendance_event = pgTable("attendance_event", {
 // Announcements
 export const announcement = pgTable("announcement", {
   id: uuid("id").primaryKey().defaultRandom(),
+  organization_id: text("organization_id").references(() => organization.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
-  message: text("message").notNull(),
-  organization_id: text("organization_id").references(() => organization.id),
-  scope: text("scope").notNull(), // enum: 'all', 'team', 'department', 'specific_users'
-  category: text("category").notNull(), // enum para categorías
+  content: text("message").notNull(),
+  priority: announcementPriorityEnum("priority").notNull().default("normal"),
+  published_at: timestamp("published_at").notNull().defaultNow(),
+  expires_at: timestamp("expires_at"),
   created_at: timestamp("created_at").notNull().defaultNow(),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
   deleted_at: timestamp("deleted_at"),
+  scope: text("scope"),
+  category: text("category"),
 });
 
 // Tabla de relación para announcements dirigidos a teams específicos
