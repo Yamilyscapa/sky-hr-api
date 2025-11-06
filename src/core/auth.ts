@@ -5,6 +5,7 @@ import { expo } from "@better-auth/expo";
 import { db } from "../db";
 import { users, accounts, sessions, verificationTokens, organization, member, invitation, team, teamMember } from "../db/schema";
 import { sendEmail } from "../utils/email";
+import { createOrganizationCollection, deleteOrganizationCollection } from "../modules/organizations/organizations.service";
 
 const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
 const BETTER_AUTH_URL = process.env.BETTER_AUTH_URL;
@@ -41,6 +42,48 @@ export const auth = betterAuth({
       async onInvitationAccepted(data: any) {
         // TODO: Add logic to handle invitation accepted
       },
+      organizationHooks: {
+        // Create Rekognition collection after organization is created
+        afterCreateOrganization: async ({ organization, member, user }) => {
+          console.log(`[afterCreateOrganization Hook] Triggered for organization: ${organization.id}`, {
+            organizationId: organization.id,
+            organizationName: organization.name,
+          });
+          
+          try {
+            // Directly create Rekognition collection for the new organization
+            const collectionId = await createOrganizationCollection(organization.id);
+            
+            if (collectionId) {
+              console.log(`[afterCreateOrganization Hook] Successfully created Rekognition collection ${collectionId} for organization: ${organization.id}`);
+            } else {
+              console.error(`[afterCreateOrganization Hook] Failed to create Rekognition collection for organization: ${organization.id}`);
+            }
+          } catch (error) {
+            // Log error but don't fail organization creation
+            console.error(`[afterCreateOrganization Hook] Error creating Rekognition collection for organization ${organization.id}:`, {
+              error: error instanceof Error ? error.message : String(error),
+              errorStack: error instanceof Error ? error.stack : undefined,
+            });
+          }
+        },
+        // Delete Rekognition collection after organization is deleted
+        afterDeleteOrganization: async ({ organization }) => {
+          try {
+            // Directly delete Rekognition collection for the organization
+            const success = await deleteOrganizationCollection(organization.id);
+            
+            if (success) {
+              console.log(`Successfully deleted Rekognition collection for organization: ${organization.id}`);
+            } else {
+              console.error(`Failed to delete Rekognition collection for organization: ${organization.id}`);
+            }
+          } catch (error) {
+            // Log error but don't fail organization deletion
+            console.error(`Error deleting Rekognition collection for organization ${organization.id}:`, error);
+          }
+        },
+      },
     })
   ],
   database: drizzleAdapter(db, {
@@ -63,7 +106,7 @@ export const auth = betterAuth({
   cookies: {
     secure: true,              // required for SameSite=None
     sameSite: 'none',
-    essionToken: {
+    sessionToken: {
       path: '/',            // avoid path lock-in
       httpOnly: true,
       // Cross-site (different TLDs):

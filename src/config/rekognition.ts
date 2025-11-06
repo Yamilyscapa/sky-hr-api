@@ -1,4 +1,4 @@
-import { RekognitionClient } from "@aws-sdk/client-rekognition";
+import { RekognitionClient, ListCollectionsCommand } from "@aws-sdk/client-rekognition";
 
 // Environment variables
 const REGION = process.env.AWS_REGION ?? "us-east-1";
@@ -66,7 +66,6 @@ export async function testRekognitionConnection(): Promise<boolean> {
     validateRekognitionConfig();
     
     // Test connection by listing collections
-    const { ListCollectionsCommand } = await import("@aws-sdk/client-rekognition");
     const command = new ListCollectionsCommand({});
     await rekognitionClient.send(command);
     

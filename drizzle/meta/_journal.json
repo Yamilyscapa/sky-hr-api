@@ -43,6 +43,13 @@
       "when": 1762059613247,
       "tag": "0005_bent_infant_terrible",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1762316937630,
+      "tag": "0006_sloppy_the_professor",
+      "breakpoints": true
     }
   ]
 }

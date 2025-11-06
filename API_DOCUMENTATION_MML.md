@@ -1,6 +1,6 @@
 # SkyHR API Documentation - MML Format
 
-This document is structured for Model Meta Language (MML) consumption and training purposes. It provides comprehensive API specifications with detailed schemas, examples, and structured data formats.
+This document is structured for Mox3del Meta Language (MML) consumption and training purposes. It provides comprehensive API specifications with detailed schemas, examples, and structured data formats.
 
 ## API Overview
 
@@ -1317,5 +1317,6 @@ curl -X POST http://localhost:8080/attendance/qr/validate \
 ---
 
 This documentation is optimized for MML consumption with structured schemas, consistent formatting, and comprehensive endpoint coverage.
+
 
 
