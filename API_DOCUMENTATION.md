@@ -152,6 +152,17 @@ Base path: `/organizations`
   - Public in current code path
   - Behavior: Ensures Rekognition collection exists (creates if missing) and persists id in DB.
 
+- GET `/organizations/:organizationId/settings`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Response: `{ message, data: OrganizationSettings }`
+  - Behavior: Retrieves organization settings (grace_period_minutes, timezone). Creates default settings if they don't exist.
+
+- PUT `/organizations/:organizationId/settings`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON: `{ grace_period_minutes?: number (0-60), timezone?: string }`
+  - Response: `{ message, data: OrganizationSettings }`
+  - Behavior: Updates organization settings. Validates grace_period_minutes is between 0 and 60.
+
 Notes: In production, consider securing organization endpoints and authenticating webhook origin.
 
 ### Geofence
@@ -413,14 +424,12 @@ The Attendance module manages employee check-in with multi-factor verification (
 - POST `/attendance/check-out`
   - Auth: `requireAuth`, `requireOrganization`
   - FormData:
-    - `attendance_event_id`: string (optional) - Specific event ID to check out. If omitted, finds most recent check-in without check-out
-    - `image`: File (optional) - Face image for verification
-    - `latitude`: string (optional) - GPS latitude
-    - `longitude`: string (optional) - GPS longitude
+    - `latitude`: string (required) - GPS latitude
+    - `longitude`: string (required) - GPS longitude
   - Behavior:
-    - Finds the most recent attendance event without check-out for the user
-    - Optionally verifies face if image provided
+    - Automatically finds the most recent attendance event without check-out for the user
     - Updates the attendance_event with check_out timestamp
+    - Calculates work duration in minutes
   - Response 200:
     ```json
     {
@@ -987,6 +996,7 @@ Tables with `deleted_at: timestamp` field support soft deletion:
 - Custom obfuscation module
 
 ## Changelog
+- v1.4.1: Documentation updates - Fixed check-out endpoint documentation (removed non-existent optional parameters), added missing organization settings endpoints (GET/PUT `/organizations/:organizationId/settings`)
 - v1.2.0: Added Schedules module (shift management), User-Geofence module, Check-out functionality, Attendance reports, comprehensive documentation update with all endpoints
 - v1.1.0: Added Geofence module, refactored Attendance to controller/service pattern, comprehensive documentation update
 - v1.0.0: Initial documented routes and modules based on current codebase

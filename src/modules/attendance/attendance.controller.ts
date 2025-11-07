@@ -381,6 +381,35 @@ export async function updateAttendanceStatusController(c: Context): Promise<Resp
   }
 }
 
+export async function getTodayAttendance(c: Context): Promise<Response> {
+  try {
+    const userId = c.req.param("userId");
+    const organization = c.get("organization");
+
+    if (!organization) {
+      return errorResponse(c, "Organization is required", ErrorCodes.UNAUTHORIZED);
+    }
+
+    if (!userId) {
+      return errorResponse(c, "User ID is required", ErrorCodes.BAD_REQUEST);
+    }
+
+    const todayAttendance = await findTodayAttendance(userId, organization.id);
+
+    if (!todayAttendance) {
+      return errorResponse(c, "Today's attendance event not found", ErrorCodes.NOT_FOUND);
+    }
+    
+    return successResponse(c, {
+      message: "Today's attendance event retrieved successfully",
+      data: todayAttendance,
+    });
+  } catch (e) {
+    console.error("Get attendance event by user ID error:", e);
+    return errorResponse(c, "Failed to retrieve attendance event", ErrorCodes.INTERNAL_SERVER_ERROR);
+  }
+}
+
 export async function getAttendanceEvents(c: Context): Promise<Response> {
   try {
     const organization = c.get("organization");

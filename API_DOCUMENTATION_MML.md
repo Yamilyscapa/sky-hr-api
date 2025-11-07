@@ -64,6 +64,8 @@ This documentation is specifically structured for optimal LLM consumption with:
 - `POST /organizations/webhook/created` - Webhook handler for organization creation
 - `POST /organizations/webhook/deleted` - Webhook handler for organization deletion
 - `GET /organizations/:organizationId` - Get organization details
+- `GET /organizations/:organizationId/settings` - Get organization settings
+- `PUT /organizations/:organizationId/settings` - Update organization settings
 
 ### Geofence Endpoints
 - `POST /geofence/create` - Create a new geofence with QR code
@@ -425,7 +427,7 @@ GET /organizations/org-123
 **Response 200**:
 ```json
 {
-  "message": "Organization found",
+  "message": "Organization retrieved successfully",
   "data": {
     "id": "org-123",
     "name": "Acme Corp",
@@ -434,6 +436,74 @@ GET /organizations/org-123
   }
 }
 ```
+
+#### GET /organizations/:organizationId/settings
+
+**Description**: Get organization settings (grace period, timezone)
+
+**Authentication**: requireAuth, requireOrganization
+
+**Request**:
+```
+GET /organizations/org-123/settings
+```
+
+**Response 200**:
+```json
+{
+  "message": "Organization settings retrieved successfully",
+  "data": {
+    "id": "uuid-123",
+    "organization_id": "org-123",
+    "grace_period_minutes": 5,
+    "timezone": "UTC",
+    "created_at": "2024-01-01T00:00:00.000Z",
+    "updated_at": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+**Behavior**: Creates default settings if they don't exist (grace_period_minutes: 5, timezone: "UTC")
+
+#### PUT /organizations/:organizationId/settings
+
+**Description**: Update organization settings
+
+**Authentication**: requireAuth, requireOrganization
+
+**Request**:
+```json
+PUT /organizations/org-123/settings
+Content-Type: application/json
+
+{
+  "grace_period_minutes": 10,
+  "timezone": "America/New_York"
+}
+```
+
+**Validation**:
+- `grace_period_minutes`: Must be between 0 and 60
+- `timezone`: String (any valid timezone identifier)
+
+**Response 200**:
+```json
+{
+  "message": "Organization settings updated successfully",
+  "data": {
+    "id": "uuid-123",
+    "organization_id": "org-123",
+    "grace_period_minutes": 10,
+    "timezone": "America/New_York",
+    "created_at": "2024-01-01T00:00:00.000Z",
+    "updated_at": "2024-01-02T10:30:00.000Z"
+  }
+}
+```
+
+**Response 400**: Invalid grace_period_minutes (must be 0-60) or missing organization ID
+
+**Response 403**: Unauthorized to update this organization's settings
 
 ---
 
@@ -1112,7 +1182,10 @@ FormData:
 - longitude: string (required) - GPS longitude
 ```
 
-**Behavior**: Automatically finds today's active check-in (no check-out yet) for the authenticated user
+**Behavior**: 
+- Automatically finds today's active check-in (no check-out yet) for the authenticated user
+- Updates the attendance event with check_out timestamp
+- Calculates work duration in minutes
 
 **Response 200**:
 ```json
@@ -1866,6 +1939,7 @@ Organizations have configurable grace period settings (default: 5 minutes):
 
 ## Change Log
 
+- **v1.4.1**: Documentation updates - Fixed check-out endpoint documentation (removed non-existent optional parameters), added missing organization settings endpoints (GET/PUT `/organizations/:organizationId/settings`)
 - **v1.4.0**: Implemented pagination across all list endpoints (Announcements, Attendance, Geofence, User-Geofence, Schedules). Added reusable pagination utility with consistent query parameters (`page`, `pageSize`) and response metadata. Added bulk attendance generation script for testing.
 - **v1.3.0**: Added Announcements module, Organization Settings, improved attendance validation
 - **v1.2.0**: Added Schedules, User-Geofence, Check-out, Reports
