@@ -1,32 +1,29 @@
 import type { Context } from "hono";
+import { eq } from "drizzle-orm";
 import { errorResponse, successResponse, ErrorCodes } from "../../core/http";
 import { createStorageService } from "./storage.service";
 import { createMulterAdapter } from "./adapters/multer-adapter";
 import { createS3Adapter } from "./adapters/s3-adapter";
 import { storagePolicies } from "./storage.policies";
+import { db } from "../../db";
+import { users } from "../../db/schema";
 
 // Use multer or s3 adapter, depending on the environment
 const storageAdapter = process.env.NODE_ENV === "development" || !process.env.NODE_ENV ? createMulterAdapter() : createS3Adapter();
 const storageService = createStorageService(storageAdapter);
 
-// Helper function to get placeholder user (this should come from auth in real implementation)
-const getPlaceholderUser = () => ({
-  id: "123",
-  name: "John Doe",
-  email: "john.doe@example.com",
-  user_face_url: [],
-  emailVerified: true,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-});
-
 export const registerBiometric = async (c: Context) => {
   const { file } = await c.req.parseBody();
   const policies = storagePolicies();
 
-  const user = getPlaceholderUser(); // placeholder for user;
+  const user = c.get("user");
+  if (!user) {
+    return errorResponse(c, "Unauthorized", ErrorCodes.UNAUTHORIZED);
+  }
 
-  if (policies.imagesLimit(user.user_face_url)) {
+  const currentFaceUrls = user.user_face_url ?? [];
+
+  if (policies.imagesLimit(currentFaceUrls)) {
     return errorResponse(c, "Maximum number of images exceeded", ErrorCodes.BAD_REQUEST);
   }
 
@@ -38,14 +35,22 @@ export const registerBiometric = async (c: Context) => {
     const result = await storageService.uploadUserFace(
       file as File,
       user.id,
-      user.user_face_url.length,
+      currentFaceUrls.length,
       "user-face"
     );
+
+    const updatedFaceUrls = [...currentFaceUrls, result.url];
+
+    await db
+      .update(users)
+      .set({ user_face_url: updatedFaceUrls })
+      .where(eq(users.id, user.id));
 
     return successResponse(c, {
       message: "File uploaded successfully",
       url: result.url,
-      fileName: result.fileName
+      fileName: result.fileName,
+      user_face_url: updatedFaceUrls,
     });
   } catch (error) {
     console.error('File upload failed:', error);

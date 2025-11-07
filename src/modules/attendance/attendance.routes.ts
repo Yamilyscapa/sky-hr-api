@@ -8,6 +8,7 @@ import {
   updateAttendanceStatusController,
   getAttendanceReport,
   getAttendanceEvents,
+  getTodayAttendance,
 } from "./attendance.controller";
 
 const attendanceRouter = new Hono();
@@ -25,6 +26,7 @@ attendanceRouter.put("/admin/update-status/:eventId", requireAuth, requireOrgani
 
 // Get attendance events (supports filtering)
 attendanceRouter.get("/events", requireAuth, requireOrganization, getAttendanceEvents);
+attendanceRouter.get("/today/:userId", requireAuth, requireOrganization, getTodayAttendance);
 
 // Reports
 attendanceRouter.get("/report", requireAuth, requireOrganization, getAttendanceReport);

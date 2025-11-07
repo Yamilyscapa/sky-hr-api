@@ -1,5 +1,12 @@
 import type { Context } from "hono";
 import { successResponse, errorResponse } from "../../core/http";
+import { eq } from "drizzle-orm";
+import { db } from "../../db";
+import { users } from "../../db/schema";
+import { createMulterAdapter } from "../storage/adapters/multer-adapter";
+import { createS3Adapter } from "../storage/adapters/s3-adapter";
+import { createStorageService } from "../storage/storage.service";
+import { storagePolicies } from "../storage/storage.policies";
 import { 
   compareFaces as compareFacesService,
   detectFaces as detectFacesService,
@@ -10,6 +17,9 @@ import {
   searchFacesByImageForOrganization as searchFacesByImageForOrganizationService,
   testConnection as testConnectionService
 } from "./biometrics.service";
+
+const storageAdapter = process.env.NODE_ENV === "development" || !process.env.NODE_ENV ? createMulterAdapter() : createS3Adapter();
+const storageService = createStorageService(storageAdapter);
 
 export async function compareFaces(c: Context) {
   try {
@@ -173,12 +183,28 @@ export async function registerUserBiometrics(c: Context) {
       return errorResponse(c, "Image is required", 400);
     }
 
+    const policies = storagePolicies();
+
+    if (image.size > policies.userFace.maxSize) {
+      return errorResponse(c, "File exceeds maximum size", 400);
+    }
+
+    if (image.type && !policies.userFace.allowedTypes.includes(image.type)) {
+      return errorResponse(c, "File type not supported", 400);
+    }
+
     // Get user information from context (set by auth middleware)
     const user = c.get("user");
     const organization = c.get("organization");
 
     if (!user || !organization) {
       return errorResponse(c, "User and organization information not available", 401);
+    }
+
+    const currentFaceUrls = user.user_face_url ?? [];
+
+    if (policies.imagesLimit(currentFaceUrls)) {
+      return errorResponse(c, "Maximum number of images exceeded", 400);
     }
 
     // Use user ID as external image ID for biometric registration
@@ -188,6 +214,26 @@ export async function registerUserBiometrics(c: Context) {
     // Register biometrics for the user's organization (with automatic collection creation)
     const result = await indexFaceForOrganizationWithEnsureService(imageBuffer, externalImageId, organization.id);
 
+    let updatedFaceUrls = currentFaceUrls;
+
+    if (result.success) {
+      const uploadResult = await storageService.uploadUserFace(
+        image,
+        user.id,
+        currentFaceUrls.length,
+        "user-face"
+      );
+
+      updatedFaceUrls = [...currentFaceUrls, uploadResult.url];
+
+      await db
+        .update(users)
+        .set({ user_face_url: updatedFaceUrls })
+        .where(eq(users.id, user.id));
+
+      user.user_face_url = updatedFaceUrls;
+    }
+
     return successResponse(c, {
       message: "User biometrics registered successfully for organization",
       data: {
@@ -195,6 +241,7 @@ export async function registerUserBiometrics(c: Context) {
         userId: user.id,
         organizationId: organization.id,
         organizationName: organization.name,
+        user_face_url: updatedFaceUrls,
       },
     });
   } catch (error) {
