@@ -2,8 +2,13 @@ import type { Context } from "hono";
 import { ErrorCodes, errorResponse, successResponse } from "../../core/http";
 import { geofence } from "../../db/schema";
 import { db } from "../../db";
-import { eq } from "drizzle-orm";
+import { count, desc, eq } from "drizzle-orm";
 import { createObfuscatedQrCode } from "../../utils/qr-generation";
+import {
+  buildPaginationMetadata,
+  PaginationError,
+  parsePaginationParams,
+} from "../../utils/pagination";
 
 interface GeofenceBody {
     name: string;
@@ -86,14 +91,38 @@ export async function getGeofencesByOrganization(c: Context): Promise<Response> 
 
         if (!organization_id) return errorResponse(c, "Organization ID is required", ErrorCodes.BAD_REQUEST);
 
-        const gfs = await db.select().from(geofence).where(eq(geofence.organization_id, organization_id as string));
-        if (!gfs || gfs.length === 0) return errorResponse(c, "Geofences not found", ErrorCodes.NOT_FOUND);
+        const pagination = parsePaginationParams(c.req.query("page"), c.req.query("pageSize"));
+
+        const whereClause = eq(geofence.organization_id, organization_id as string);
+
+        const totalResult = await db
+            .select({ value: count() })
+            .from(geofence)
+            .where(whereClause);
+
+        const total = Number(totalResult[0]?.value ?? 0);
+
+        if (total === 0) return errorResponse(c, "Geofences not found", ErrorCodes.NOT_FOUND);
+
+        const baseQuery = db
+            .select()
+            .from(geofence)
+            .where(whereClause)
+            .orderBy(desc(geofence.created_at));
+
+        const gfs = await baseQuery
+            .limit(pagination.limit)
+            .offset(pagination.offset);
 
         return successResponse(c, {
             message: "Geofences found",
             data: gfs,
+            pagination: buildPaginationMetadata(pagination, total),
         });
     } catch (error) {
+        if (error instanceof PaginationError) {
+            return errorResponse(c, error.message, ErrorCodes.BAD_REQUEST);
+        }
         return errorResponse(c, "Failed to get geofences by organization", ErrorCodes.INTERNAL_SERVER_ERROR);
     }
 }

@@ -1,6 +1,7 @@
 import { db } from "../../db";
 import { shift, user_schedule } from "../../db/schema";
-import { and, eq, gte, lte, or, isNull } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNull, lte, or } from "drizzle-orm";
+import type { PaginationParams } from "../../utils/pagination";
 
 export type CreateShiftData = {
   organization_id: string;
@@ -37,11 +38,31 @@ export async function createShift(data: CreateShiftData) {
   return inserted[0];
 }
 
-export async function getShiftsByOrganization(organizationId: string) {
-  return await db
+export async function getShiftsByOrganization(
+  organizationId: string,
+  pagination?: PaginationParams
+) {
+  const whereClause = and(eq(shift.organization_id, organizationId), eq(shift.active, true));
+
+  const totalResult = await db
+    .select({ value: count() })
+    .from(shift)
+    .where(whereClause);
+
+  const baseQuery = db
     .select()
     .from(shift)
-    .where(and(eq(shift.organization_id, organizationId), eq(shift.active, true)));
+    .where(whereClause)
+    .orderBy(desc(shift.created_at));
+
+  const rows = await (pagination
+    ? baseQuery.limit(pagination.limit).offset(pagination.offset)
+    : baseQuery);
+
+  return {
+    shifts: rows,
+    total: Number(totalResult[0]?.value ?? 0),
+  };
 }
 
 export async function getShiftById(shiftId: string) {
@@ -153,14 +174,14 @@ export function getDayOfWeek(date: Date): string {
     "friday",
     "saturday",
   ];
-  return days[date.getDay()];
+  return days[date.getDay()] ?? "sunday";
 }
 
 /**
  * Parse time string "HH:MM:SS" and create Date for today at that time
  */
 export function parseTimeToToday(timeString: string): Date {
-  const [hours, minutes, seconds] = timeString.split(":").map(Number);
+  const [hours = 0, minutes = 0, seconds = 0] = timeString.split(":").map(Number);
   const date = new Date();
   date.setHours(hours, minutes, seconds || 0, 0);
   return date;
@@ -199,4 +220,3 @@ export async function getUsersWithActiveShifts(
     s.days_of_week.includes(dayOfWeek)
   );
 }
-

@@ -15,7 +15,12 @@ import {
 import { searchFacesByImageForOrganization } from "../biometrics/biometrics.service";
 import { db } from "../../db";
 import { attendance_event, member, organization } from "../../db/schema";
-import { and, eq, or, gte, lte, desc } from "drizzle-orm";
+import { and, count, desc, eq, gte, lte, or } from "drizzle-orm";
+import {
+  buildPaginationMetadata,
+  PaginationError,
+  parsePaginationParams,
+} from "../../utils/pagination";
 
 export async function validateQr(c: Context): Promise<Response> {
   try {
@@ -163,9 +168,11 @@ export async function checkIn(c: Context): Promise<Response> {
     }
 
     // 7) Create attendance event with full metadata
+    // Use the validated geofence ID automatically
     const record = await createAttendanceEvent({
       userId: user.id,
       organizationId: organizationId,
+      locationId: gf.id, // Automatically use the validated geofence ID
       shiftId,
       status: finalStatus,
       isWithinGeofence: isWithin,
@@ -190,6 +197,7 @@ export async function checkIn(c: Context): Promise<Response> {
         check_in: record.check_in,
         user_id: record.user_id,
         organization_id: record.organization_id,
+        location_id: record.location_id,
         shift_id: record.shift_id,
         status: record.status,
         is_within_geofence: record.is_within_geofence,
@@ -376,11 +384,12 @@ export async function updateAttendanceStatusController(c: Context): Promise<Resp
 export async function getAttendanceEvents(c: Context): Promise<Response> {
   try {
     const organization = c.get("organization");
-    const user = c.get("user");
 
     if (!organization) {
       return errorResponse(c, "Organization is required", ErrorCodes.UNAUTHORIZED);
     }
+
+    const pagination = parsePaginationParams(c.req.query("page"), c.req.query("pageSize"));
 
     // Get query parameters for filtering
     const userId = c.req.query("user_id");
@@ -413,40 +422,53 @@ export async function getAttendanceEvents(c: Context): Promise<Response> {
       conditions.push(eq(attendance_event.status, status));
     }
 
+    const whereClause = and(...conditions);
+
+    const totalResult = await db
+      .select({ value: count() })
+      .from(attendance_event)
+      .where(whereClause);
+
+    const total = Number(totalResult[0]?.value ?? 0);
+
     const events = await db
       .select()
       .from(attendance_event)
-      .where(and(...conditions))
-      .orderBy(desc(attendance_event.check_in));
+      .where(whereClause)
+      .orderBy(desc(attendance_event.check_in))
+      .limit(pagination.limit)
+      .offset(pagination.offset);
 
     return successResponse(c, {
       message: "Attendance events retrieved successfully",
-      data: {
-        total: events.length,
-        events: events.map((event) => ({
-          id: event.id,
-          user_id: event.user_id,
-          organization_id: event.organization_id,
-          check_in: event.check_in,
-          check_out: event.check_out,
-          status: event.status,
-          is_verified: event.is_verified,
-          is_within_geofence: event.is_within_geofence,
-          distance_to_geofence_m: event.distance_to_geofence_m,
-          latitude: event.latitude,
-          longitude: event.longitude,
-          source: event.source,
-          face_confidence: event.face_confidence,
-          liveness_score: event.liveness_score,
-          spoof_flag: event.spoof_flag,
-          shift_id: event.shift_id,
-          notes: event.notes,
-          created_at: event.created_at,
-          updated_at: event.updated_at,
-        })),
-      },
+      data: events.map((event) => ({
+        id: event.id,
+        user_id: event.user_id,
+        organization_id: event.organization_id,
+        location_id: event.location_id,
+        check_in: event.check_in,
+        check_out: event.check_out,
+        status: event.status,
+        is_verified: event.is_verified,
+        is_within_geofence: event.is_within_geofence,
+        distance_to_geofence_m: event.distance_to_geofence_m,
+        latitude: event.latitude,
+        longitude: event.longitude,
+        source: event.source,
+        face_confidence: event.face_confidence,
+        liveness_score: event.liveness_score,
+        spoof_flag: event.spoof_flag,
+        shift_id: event.shift_id,
+        notes: event.notes,
+        created_at: event.created_at,
+        updated_at: event.updated_at,
+      })),
+      pagination: buildPaginationMetadata(pagination, total),
     });
   } catch (e) {
+    if (e instanceof PaginationError) {
+      return errorResponse(c, e.message, ErrorCodes.BAD_REQUEST);
+    }
     console.error("Get attendance events error:", e);
     return errorResponse(c, "Failed to retrieve attendance events", ErrorCodes.INTERNAL_SERVER_ERROR);
   }
@@ -497,4 +519,3 @@ export async function getAttendanceReport(c: Context): Promise<Response> {
     return errorResponse(c, "Failed to retrieve attendance report", ErrorCodes.INTERNAL_SERVER_ERROR);
   }
 }
-
