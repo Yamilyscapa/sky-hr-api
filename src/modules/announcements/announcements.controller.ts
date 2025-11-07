@@ -1,6 +1,11 @@
 import type { Context } from "hono";
 import { ErrorCodes, SuccessCodes, errorResponse, successResponse } from "../../core/http";
 import {
+  buildPaginationMetadata,
+  PaginationError,
+  parsePaginationParams,
+} from "../../utils/pagination";
+import {
   ANNOUNCEMENT_PRIORITIES,
   createAnnouncement as createAnnouncementService,
   deleteAnnouncement as deleteAnnouncementService,
@@ -107,16 +112,26 @@ export async function getAnnouncements(c: Context): Promise<Response> {
     const includeExpired = admin && c.req.query("includeExpired") === "true";
     const includeFuture = admin && c.req.query("includeFuture") === "true";
 
-    const announcements = await listAnnouncements(organization.id, {
-      includeExpired,
-      includeFuture,
-    });
+    const pagination = parsePaginationParams(c.req.query("page"), c.req.query("pageSize"));
+
+    const { data, total } = await listAnnouncements(
+      organization.id,
+      {
+        includeExpired,
+        includeFuture,
+      },
+      pagination
+    );
 
     return successResponse(c, {
       message: "Announcements retrieved successfully",
-      data: announcements,
+      data: data,
+      pagination: buildPaginationMetadata(pagination, total),
     });
   } catch (error) {
+    if (error instanceof PaginationError) {
+      return errorResponse(c, error.message, ErrorCodes.BAD_REQUEST);
+    }
     console.error("getAnnouncements error:", error);
     return errorResponse(c, "Unable to fetch announcements", ErrorCodes.INTERNAL_SERVER_ERROR);
   }

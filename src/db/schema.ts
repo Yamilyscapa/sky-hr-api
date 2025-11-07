@@ -236,6 +236,7 @@ export const attendance_event = pgTable("attendance_event", {
   check_out: timestamp("check_out"), // null if not checked out yet
   is_verified: boolean("is_verified").notNull().default(false),
   organization_id: text("organization_id").references(() => organization.id),
+  location_id: uuid("location_id").references(() => geofence.id),
   shift_id: uuid("shift_id").references(() => shift.id),
   status: text("status").notNull().default("on_time"), // "on_time", "late", "early", "absent", "out_of_bounds"
   is_within_geofence: boolean("is_within_geofence").notNull().default(true),
@@ -358,6 +359,10 @@ export const attendanceEventRelations = relations(
       fields: [attendance_event.organization_id],
       references: [organization.id],
     }),
+    location: one(geofence, {
+      fields: [attendance_event.location_id],
+      references: [geofence.id],
+    }),
     shift: one(shift, {
       fields: [attendance_event.shift_id],
       references: [shift.id],
@@ -421,6 +426,7 @@ export const geofenceRelations = relations(geofence, ({ one, many }) => ({
     references: [organization.id],
   }),
   userGeofences: many(user_geofence),
+  attendanceEvents: many(attendance_event),
 }));
 
 export const userGeofenceRelations = relations(user_geofence, ({ one }) => ({

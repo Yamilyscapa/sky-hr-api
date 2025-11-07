@@ -10,6 +10,11 @@ import {
   type CreateShiftData,
   type AssignShiftData,
 } from "./schedules.service";
+import {
+  buildPaginationMetadata,
+  PaginationError,
+  parsePaginationParams,
+} from "../../utils/pagination";
 
 export async function createShift(c: Context): Promise<Response> {
   try {
@@ -98,14 +103,20 @@ export async function getShifts(c: Context): Promise<Response> {
       return errorResponse(c, "Organization is required", ErrorCodes.UNAUTHORIZED);
     }
 
-    const shifts = await getShiftsByOrganization(organization.id);
+    const pagination = parsePaginationParams(c.req.query("page"), c.req.query("pageSize"));
+
+    const { shifts, total } = await getShiftsByOrganization(organization.id, pagination);
 
     return successResponse(c, {
       message: "Shifts retrieved successfully",
       data: shifts,
+      pagination: buildPaginationMetadata(pagination, total),
     });
   } catch (error) {
     console.error("Get shifts error:", error);
+    if (error instanceof PaginationError) {
+      return errorResponse(c, error.message, ErrorCodes.BAD_REQUEST);
+    }
     return errorResponse(c, "Failed to retrieve shifts", ErrorCodes.INTERNAL_SERVER_ERROR);
   }
 }
@@ -257,4 +268,3 @@ export async function getUserScheduleController(c: Context): Promise<Response> {
     return errorResponse(c, "Failed to retrieve user schedule", ErrorCodes.INTERNAL_SERVER_ERROR);
   }
 }
-

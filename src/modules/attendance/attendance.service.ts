@@ -9,6 +9,7 @@ export type QrPayload = { organization_id: string; location_id: string };
 export type CreateAttendanceEventArgs = {
   userId: string;
   organizationId: string;
+  locationId?: string | null;
   shiftId?: string | null;
   status: string;
   isWithinGeofence: boolean;
@@ -237,6 +238,7 @@ export async function createAttendanceEvent(args: CreateAttendanceEventArgs) {
   const {
     userId,
     organizationId,
+    locationId,
     shiftId,
     status,
     isWithinGeofence,
@@ -253,6 +255,7 @@ export async function createAttendanceEvent(args: CreateAttendanceEventArgs) {
     .values({
       user_id: userId,
       organization_id: organizationId,
+      location_id: locationId ?? null,
       shift_id: shiftId ?? null,
       check_in: new Date(),
       check_out: null,

@@ -10,6 +10,11 @@ import {
   getGeofenceUsers,
   userHasAccessToGeofence,
 } from "./user-geofence.service";
+import {
+  buildPaginationMetadata,
+  PaginationError,
+  parsePaginationParams,
+} from "../../utils/pagination";
 
 /**
  * Assigns one or more geofences to a user
@@ -217,17 +222,24 @@ export const getUserGeofencesController = async (
       return errorResponse(c, "Unauthorized", ErrorCodes.UNAUTHORIZED);
     }
 
-    const assignments = await getUserGeofences(user_id, organization.id);
+    const pagination = parsePaginationParams(c.req.query("page"), c.req.query("pageSize"));
+
+    const { assignments, total } = await getUserGeofences(
+      user_id,
+      organization.id,
+      pagination
+    );
 
     return successResponse(c, {
       message: "User geofences retrieved successfully",
-      data: {
-        count: assignments.length,
-        assignments,
-      },
+      data: assignments,
+      pagination: buildPaginationMetadata(pagination, total),
     });
   } catch (error) {
     console.error("Error in getUserGeofencesController:", error);
+    if (error instanceof PaginationError) {
+      return errorResponse(c, error.message, ErrorCodes.BAD_REQUEST);
+    }
     return errorResponse(
       c,
       "Failed to get user geofences",
@@ -259,17 +271,24 @@ export const getGeofenceUsersController = async (
       return errorResponse(c, "Unauthorized", ErrorCodes.UNAUTHORIZED);
     }
 
-    const assignments = await getGeofenceUsers(geofence_id, organization.id);
+    const pagination = parsePaginationParams(c.req.query("page"), c.req.query("pageSize"));
+
+    const { assignments, total } = await getGeofenceUsers(
+      geofence_id,
+      organization.id,
+      pagination
+    );
 
     return successResponse(c, {
       message: "Geofence users retrieved successfully",
-      data: {
-        count: assignments.length,
-        assignments,
-      },
+      data: assignments,
+      pagination: buildPaginationMetadata(pagination, total),
     });
   } catch (error) {
     console.error("Error in getGeofenceUsersController:", error);
+    if (error instanceof PaginationError) {
+      return errorResponse(c, error.message, ErrorCodes.BAD_REQUEST);
+    }
     return errorResponse(
       c,
       "Failed to get geofence users",
@@ -323,4 +342,3 @@ export const checkUserGeofenceAccessController = async (
     );
   }
 };
-

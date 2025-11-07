@@ -1,6 +1,7 @@
-import { and, desc, eq, gt, isNull, lte, or } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull, lte, or } from "drizzle-orm";
 import { db } from "../../db";
 import { announcement } from "../../db/schema";
+import type { PaginationParams } from "../../utils/pagination";
 
 export const ANNOUNCEMENT_PRIORITIES = ["normal", "important", "urgent"] as const;
 
@@ -65,31 +66,50 @@ export async function createAnnouncement(data: CreateAnnouncementData) {
     } satisfies AnnouncementInsert)
     .returning();
 
-  return inserted.length ? mapAnnouncement(inserted[0]) : null;
+  return inserted.length ? mapAnnouncement(inserted[0]!) : null;
 }
 
-export async function listAnnouncements(organizationId: string, filters: AnnouncementFilters = {}) {
+export async function listAnnouncements(
+  organizationId: string,
+  filters: AnnouncementFilters = {},
+  pagination?: PaginationParams
+) {
   const now = new Date();
-  const conditions = [
+  let whereClause = and(
     eq(announcement.organization_id, organizationId),
-    isNull(announcement.deleted_at),
-  ];
+    isNull(announcement.deleted_at)
+  );
 
   if (!filters.includeExpired) {
-    conditions.push(or(isNull(announcement.expires_at), gt(announcement.expires_at, now)));
+    whereClause = and(
+      whereClause,
+      or(isNull(announcement.expires_at), gt(announcement.expires_at, now))
+    );
   }
 
   if (!filters.includeFuture) {
-    conditions.push(lte(announcement.published_at, now));
+    whereClause = and(whereClause, lte(announcement.published_at, now));
   }
 
-  const rows = await db
+  const totalResult = await db
+    .select({ value: count() })
+    .from(announcement)
+    .where(whereClause);
+
+  const baseQuery = db
     .select()
     .from(announcement)
-    .where(and(...conditions))
+    .where(whereClause)
     .orderBy(desc(announcement.published_at));
 
-  return rows.map(mapAnnouncement);
+  const rows = await (pagination
+    ? baseQuery.limit(pagination.limit).offset(pagination.offset)
+    : baseQuery);
+
+  return {
+    data: rows.map(mapAnnouncement),
+    total: Number(totalResult[0]?.value ?? 0),
+  };
 }
 
 export async function getAnnouncement(announcementId: string, organizationId: string) {
@@ -131,7 +151,7 @@ export async function updateAnnouncement(announcementId: string, organizationId:
     )
     .returning();
 
-  return updated.length ? mapAnnouncement(updated[0]) : null;
+  return updated.length ? mapAnnouncement(updated[0]!) : null;
 }
 
 export async function deleteAnnouncement(announcementId: string, organizationId: string) {
@@ -150,5 +170,5 @@ export async function deleteAnnouncement(announcementId: string, organizationId:
     )
     .returning();
 
-  return deleted.length ? mapAnnouncement(deleted[0]) : null;
+  return deleted.length ? mapAnnouncement(deleted[0]!) : null;
 }

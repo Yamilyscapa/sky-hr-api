@@ -1,6 +1,7 @@
 import { db } from "../../db";
-import { user_geofence, geofence, users } from "../../db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { geofence, user_geofence, users } from "../../db/schema";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
+import type { PaginationParams } from "../../utils/pagination";
 
 /**
  * Assigns a single geofence to a user
@@ -161,9 +162,20 @@ export const removeAllGeofencesFromUser = async (
  */
 export const getUserGeofences = async (
   userId: string,
-  organizationId: string
+  organizationId: string,
+  pagination?: PaginationParams
 ) => {
-  const assignments = await db
+  const whereClause = and(
+    eq(user_geofence.user_id, userId),
+    eq(user_geofence.organization_id, organizationId)
+  );
+
+  const totalResult = await db
+    .select({ value: count() })
+    .from(user_geofence)
+    .where(whereClause);
+
+  const baseQuery = db
     .select({
       id: user_geofence.id,
       geofence_id: user_geofence.geofence_id,
@@ -181,14 +193,17 @@ export const getUserGeofences = async (
     })
     .from(user_geofence)
     .leftJoin(geofence, eq(user_geofence.geofence_id, geofence.id))
-    .where(
-      and(
-        eq(user_geofence.user_id, userId),
-        eq(user_geofence.organization_id, organizationId)
-      )
-    );
+    .where(whereClause)
+    .orderBy(desc(user_geofence.created_at));
 
-  return assignments;
+  const assignments = await (pagination
+    ? baseQuery.limit(pagination.limit).offset(pagination.offset)
+    : baseQuery);
+
+  return {
+    assignments,
+    total: Number(totalResult[0]?.value ?? 0),
+  };
 };
 
 /**
@@ -196,9 +211,20 @@ export const getUserGeofences = async (
  */
 export const getGeofenceUsers = async (
   geofenceId: string,
-  organizationId: string
+  organizationId: string,
+  pagination?: PaginationParams
 ) => {
-  const assignments = await db
+  const whereClause = and(
+    eq(user_geofence.geofence_id, geofenceId),
+    eq(user_geofence.organization_id, organizationId)
+  );
+
+  const totalResult = await db
+    .select({ value: count() })
+    .from(user_geofence)
+    .where(whereClause);
+
+  const baseQuery = db
     .select({
       id: user_geofence.id,
       user_id: user_geofence.user_id,
@@ -212,14 +238,17 @@ export const getGeofenceUsers = async (
     })
     .from(user_geofence)
     .leftJoin(users, eq(user_geofence.user_id, users.id))
-    .where(
-      and(
-        eq(user_geofence.geofence_id, geofenceId),
-        eq(user_geofence.organization_id, organizationId)
-      )
-    );
+    .where(whereClause)
+    .orderBy(desc(user_geofence.created_at));
 
-  return assignments;
+  const assignments = await (pagination
+    ? baseQuery.limit(pagination.limit).offset(pagination.offset)
+    : baseQuery);
+
+  return {
+    assignments,
+    total: Number(totalResult[0]?.value ?? 0),
+  };
 };
 
 /**
@@ -243,4 +272,3 @@ export const userHasAccessToGeofence = async (
 
   return assignment.length > 0;
 };
-
