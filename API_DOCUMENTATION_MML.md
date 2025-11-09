@@ -1,7 +1,7 @@
 # SkyHR API Documentation - LLM Optimized
 
-**Document Version**: v1.4.0  
-**Last Updated**: December 2024  
+**Document Version**: v1.4.3  
+**Last Updated**: January 2025  
 **Optimization Target**: Large Language Model (LLM) consumption and code generation
 
 This documentation is specifically structured for optimal LLM consumption with:
@@ -66,6 +66,8 @@ This documentation is specifically structured for optimal LLM consumption with:
 - `GET /organizations/:organizationId` - Get organization details
 - `GET /organizations/:organizationId/settings` - Get organization settings
 - `PUT /organizations/:organizationId/settings` - Update organization settings
+- `GET /organizations/:organizationId/invitations/by-email` - Get a specific invitation by email
+- `GET /organizations/invitations/status` - Public invitation status lookup by email
 
 ### Geofence Endpoints
 - `POST /geofence/create` - Create a new geofence with QR code
@@ -504,6 +506,81 @@ Content-Type: application/json
 **Response 400**: Invalid grace_period_minutes (must be 0-60) or missing organization ID
 
 **Response 403**: Unauthorized to update this organization's settings
+
+#### GET /organizations/:organizationId/invitations/by-email
+
+**Description**: Fetch a single invitation that belongs to an organization and matches the provided email (case-insensitive). Useful for checking whether a user already has a pending invite before sending another or for client-side validation flows.
+
+**Authentication**: requireAuth, requireOrganization
+
+**Query Parameters**:
+- `email` *(string, required)*: Email address to search for. Must be a valid email format.
+
+**Request**:
+```
+GET /organizations/org-123/invitations/by-email?email=jane.doe%40example.com
+```
+
+**Response 200**:
+```json
+{
+  "message": "Invitation retrieved successfully",
+  "data": {
+    "id": "inv-789",
+    "organizationId": "org-123",
+    "email": "jane.doe@example.com",
+    "role": "member",
+    "status": "pending",
+    "expiresAt": "2024-12-01T00:00:00.000Z",
+    "inviterId": "user-456",
+    "teamId": null
+  }
+}
+```
+
+**Response 400**: Missing organizationId or email, or invalid email format.
+
+**Response 403**: Authenticated member does not belong to the requested organization.
+
+**Response 404**: No invitation exists for that email within the organization.
+
+#### GET /organizations/invitations/status
+
+**Description**: Public endpoint used by onboarding flows to confirm whether an invitation email currently has a pending organization invite. Does not reveal organization identifiers or inviter details.
+
+**Authentication**: None (Public)
+
+**Query Parameters**:
+- `email` *(string, required)*: Email address to inspect. Must be a valid email format.
+
+**Request**:
+```
+GET /organizations/invitations/status?email=jane.doe%40example.com
+```
+
+**Response 200 (pending)**:
+```json
+{
+  "message": "Invitation pending",
+  "data": {
+    "status": "pending",
+    "pending": true
+  }
+}
+```
+
+**Response 200 (not found)**:
+```json
+{
+  "message": "Invitation not found",
+  "data": {
+    "status": "not_found",
+    "pending": false
+  }
+}
+```
+
+**Response 400**: Missing/invalid email parameter.
 
 ---
 
@@ -1939,6 +2016,8 @@ Organizations have configurable grace period settings (default: 5 minutes):
 
 ## Change Log
 
+- **v1.4.3**: Added public invitation status endpoint (GET `/organizations/invitations/status`) for unauthenticated email checks.
+- **v1.4.2**: Added organization invitation lookup endpoint (GET `/organizations/:organizationId/invitations/by-email`) with validation/error semantics documented.
 - **v1.4.1**: Documentation updates - Fixed check-out endpoint documentation (removed non-existent optional parameters), added missing organization settings endpoints (GET/PUT `/organizations/:organizationId/settings`)
 - **v1.4.0**: Implemented pagination across all list endpoints (Announcements, Attendance, Geofence, User-Geofence, Schedules). Added reusable pagination utility with consistent query parameters (`page`, `pageSize`) and response metadata. Added bulk attendance generation script for testing.
 - **v1.3.0**: Added Announcements module, Organization Settings, improved attendance validation
@@ -2014,4 +2093,3 @@ This documentation is optimized for LLM consumption with structured schemas, con
 
 **Maintained by**: SkyHR Development Team  
 **Support**: Contact via repository issues or documentation feedback
-

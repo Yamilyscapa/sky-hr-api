@@ -3,9 +3,11 @@ import { Resend } from "resend";
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const sendEmail = async (to: string, subject: string, html: string) => {
+    const FROM_EMAIL = process.env.RESEND_FROM_EMAIL;
+    
     try {
         const { data, error } = await resend.emails.send({
-            from: "SkyHR <onboarding@resend.dev>",
+            from: `SkyHR <${FROM_EMAIL}>`,
             to: to,
             subject: subject,
             html,

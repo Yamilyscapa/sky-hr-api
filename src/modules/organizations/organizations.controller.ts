@@ -11,8 +11,8 @@ import {
   ensureOrganizationSettings,
 } from "../attendance/attendance.service";
 import { db } from "../../db";
-import { organization_settings } from "../../db/schema";
-import { eq } from "drizzle-orm";
+import { invitation, organization_settings } from "../../db/schema";
+import { and, eq, ilike } from "drizzle-orm";
 
 /**
  * Webhook handler for organization creation events
@@ -223,6 +223,110 @@ export const updateSettings = async (c: Context) => {
     });
   } catch (error) {
     console.error("Update settings error:", error);
+    return errorResponse(c, "Internal server error", 500);
+  }
+};
+
+/**
+ * Get a single invitation for an organization by email
+ */
+export const getInvitationByEmail = async (c: Context) => {
+  try {
+    const organizationId = c.req.param("organizationId");
+    const emailParam = c.req.query("email");
+    const contextOrganization = c.get("organization");
+
+    if (!organizationId) {
+      return errorResponse(c, "Organization ID is required", 400);
+    }
+
+    if (!emailParam) {
+      return errorResponse(c, "Email is required", 400);
+    }
+
+    // Quick format sanity check before querying
+    const normalizedEmail = emailParam.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
+      return errorResponse(c, "A valid email address is required", 400);
+    }
+
+    if (contextOrganization && contextOrganization.id !== organizationId) {
+      return errorResponse(c, "Unauthorized to access this organization's invitations", 403);
+    }
+
+    const [invitationRecord] = await db
+      .select({
+        id: invitation.id,
+        organizationId: invitation.organizationId,
+        email: invitation.email,
+        role: invitation.role,
+        status: invitation.status,
+        expiresAt: invitation.expiresAt,
+        inviterId: invitation.inviterId,
+        teamId: invitation.teamId,
+      })
+      .from(invitation)
+      .where(
+        and(
+          eq(invitation.organizationId, organizationId),
+          ilike(invitation.email, normalizedEmail)
+        )
+      )
+      .limit(1);
+
+    if (!invitationRecord) {
+      return errorResponse(c, "Invitation not found", 404);
+    }
+
+    return successResponse(c, {
+      message: "Invitation retrieved successfully",
+      data: invitationRecord,
+    });
+  } catch (error) {
+    console.error("Get invitation by email error:", error);
+    return errorResponse(c, "Internal server error", 500);
+  }
+};
+
+/**
+ * Public endpoint to check if an invitation exists for an email
+ * Returns only pending/not_found without exposing organization details
+ */
+export const getInvitationStatusPublic = async (c: Context) => {
+  try {
+    const emailParam = c.req.query("email");
+
+    if (!emailParam) {
+      return errorResponse(c, "Email is required", 400);
+    }
+
+    const normalizedEmail = emailParam.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
+      return errorResponse(c, "A valid email address is required", 400);
+    }
+
+    const [invitationRecord] = await db
+      .select({ id: invitation.id })
+      .from(invitation)
+      .where(
+        and(
+          ilike(invitation.email, normalizedEmail),
+          eq(invitation.status, "pending")
+        )
+      )
+      .limit(1);
+
+    return successResponse(c, {
+      message: invitationRecord ? "Invitation pending" : "Invitation not found",
+      data: {
+        status: invitationRecord ? "pending" : "not_found",
+        pending: Boolean(invitationRecord),
+      },
+    });
+  } catch (error) {
+    console.error("Public invitation status lookup error:", error);
     return errorResponse(c, "Internal server error", 500);
   }
 };
