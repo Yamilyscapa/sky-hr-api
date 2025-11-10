@@ -5,6 +5,10 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 export const sendEmail = async (to: string, subject: string, html: string) => {
     const FROM_EMAIL = process.env.RESEND_FROM_EMAIL;
     
+    if (!FROM_EMAIL) {
+        throw new Error("RESEND_FROM_EMAIL is not set");
+    }
+    
     try {
         const { data, error } = await resend.emails.send({
             from: `SkyHR <${FROM_EMAIL}>`,
