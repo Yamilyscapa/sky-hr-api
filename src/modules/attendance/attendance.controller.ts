@@ -12,7 +12,7 @@ import {
   updateAttendanceStatus as updateStatusService,
   markAbsentUsers,
 } from "./attendance.service";
-import { searchFacesByImageForOrganization } from "../biometrics/biometrics.service";
+import { searchFacesByImageForOrganization, detectLiveness } from "../biometrics/biometrics.service";
 import { rekognitionSettings } from "../../config/rekognition";
 import { db } from "../../db";
 import { attendance_event, member, organization } from "../../db/schema";
@@ -196,7 +196,17 @@ export async function checkIn(c: Context): Promise<Response> {
       threshold: rekognitionSettings.similarityThreshold
     });
 
-    // 6) Calculate attendance status based on shift
+    // 6) Liveness detection to detect potential photo/print spoofing
+    const livenessResult = await detectLiveness(imageBuffer);
+    
+    console.log(`[checkIn] Liveness detection result:`, {
+      isLive: livenessResult.isLive,
+      livenessScore: livenessResult.livenessScore,
+      spoofFlag: livenessResult.spoofFlag,
+      reasons: livenessResult.reasons
+    });
+
+    // 7) Calculate attendance status based on shift
     const checkInTime = new Date();
     const { status: baseStatus, shiftId, notes: statusNotes } = await calculateAttendanceStatus(
       checkInTime,
@@ -213,7 +223,7 @@ export async function checkIn(c: Context): Promise<Response> {
       notes = `Check-in ${distance}m from geofence (radius: ${gf.radius}m). ${statusNotes || ""}`.trim();
     }
 
-    // 7) Create attendance event with full metadata
+    // 8) Create attendance event with full metadata
     // Use the validated geofence ID automatically
     const record = await createAttendanceEvent({
       userId: user.id,
@@ -226,7 +236,8 @@ export async function checkIn(c: Context): Promise<Response> {
       latitude,
       longitude,
       faceConfidence: String(similarity),
-      spoofFlag: false,
+      livenessScore: String(livenessResult.livenessScore),
+      spoofFlag: livenessResult.spoofFlag,
       notes,
     });
 
