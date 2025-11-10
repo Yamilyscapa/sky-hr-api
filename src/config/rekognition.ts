@@ -25,7 +25,7 @@ export const rekognitionSettings = {
   similarityThreshold: 80,
   
   // Face detection confidence threshold (0-100)
-  faceDetectionConfidence: 90,
+  faceDetectionConfidence: 80,
   
   // Maximum number of faces to detect
   maxFaces: 10,

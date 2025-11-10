@@ -13,6 +13,7 @@ import {
   markAbsentUsers,
 } from "./attendance.service";
 import { searchFacesByImageForOrganization } from "../biometrics/biometrics.service";
+import { rekognitionSettings } from "../../config/rekognition";
 import { db } from "../../db";
 import { attendance_event, member, organization } from "../../db/schema";
 import { and, count, desc, eq, gte, lte, or } from "drizzle-orm";
@@ -142,13 +143,58 @@ export async function checkIn(c: Context): Promise<Response> {
       return errorResponse(c, "Invalid base64 image format", ErrorCodes.BAD_REQUEST);
     }
     const matches = await searchFacesByImageForOrganization(imageBuffer, organizationId);
-    const best = matches?.[0];
-    const externalImageId = best?.Face?.ExternalImageId;
-    const similarity = best?.Similarity ?? 0;
+    
+    // Debug logging
+    console.log(`[checkIn] Face search results:`, {
+      matchesCount: matches?.length ?? 0,
+      threshold: rekognitionSettings.similarityThreshold,
+      matches: matches?.map(m => ({
+        externalImageId: m.Face?.ExternalImageId,
+        similarity: m.Similarity,
+        confidence: m.Face?.Confidence
+      })) ?? []
+    });
+    
+    // Find the match for the current user (not just the first/highest similarity match)
+    const userMatch = matches?.find(m => m.Face?.ExternalImageId === user.id);
+    const externalImageId = userMatch?.Face?.ExternalImageId;
+    const similarity = userMatch?.Similarity ?? 0;
 
-    if (!best || externalImageId !== user.id) {
+    console.log(`[checkIn] User match:`, {
+      hasMatch: !!userMatch,
+      externalImageId,
+      expectedUserId: user.id,
+      similarity,
+      threshold: rekognitionSettings.similarityThreshold
+    });
+
+    if (!userMatch || externalImageId !== user.id) {
+      console.log(`[checkIn] Face match failed:`, {
+        hasMatch: !!userMatch,
+        externalImageId,
+        expectedUserId: user.id,
+        allMatches: matches?.map(m => m.Face?.ExternalImageId) ?? []
+      });
       return errorResponse(c, "Face does not match the current user", ErrorCodes.FORBIDDEN);
     }
+
+    // Validate similarity meets the configured threshold
+    if (similarity < rekognitionSettings.similarityThreshold) {
+      console.log(`[checkIn] Similarity below threshold:`, {
+        similarity,
+        threshold: rekognitionSettings.similarityThreshold
+      });
+      return errorResponse(
+        c,
+        `Face similarity (${similarity.toFixed(1)}%) is below the required threshold (${rekognitionSettings.similarityThreshold}%)`,
+        ErrorCodes.FORBIDDEN
+      );
+    }
+
+    console.log(`[checkIn] Face verification passed:`, {
+      similarity,
+      threshold: rekognitionSettings.similarityThreshold
+    });
 
     // 6) Calculate attendance status based on shift
     const checkInTime = new Date();

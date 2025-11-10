@@ -9,6 +9,7 @@ import geofenceRouter from "./modules/geofence/geofence.routes";
 import userGeofenceRouter from "./modules/geofence/user-geofence.routes";
 import schedulesRouter from "./modules/schedules/schedules.routes";
 import announcementsRouter from "./modules/announcements/announcements.routes";
+import permissionsRouter from "./modules/permissions/permissions.routes";
 
 const router = new Hono();
 
@@ -22,5 +23,6 @@ router.route("/geofence", geofenceRouter);
 router.route("/user-geofence", userGeofenceRouter);
 router.route("/schedules", schedulesRouter);
 router.route("/announcements", announcementsRouter);
+router.route("/permissions", permissionsRouter);
 
 export default router;

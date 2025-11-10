@@ -245,6 +245,13 @@ export const searchFacesByImage = async (
   try {
     const collection = collectionId ?? rekognitionSettings.collectionId;
     const max = maxFaces ?? rekognitionSettings.maxFaces;
+    const threshold = rekognitionSettings.similarityThreshold;
+
+    console.log(`[searchFacesByImage] Searching with:`, {
+      collection,
+      maxFaces: max,
+      faceMatchThreshold: threshold
+    });
 
     const params: SearchFacesByImageCommandInput = {
       CollectionId: collection,
@@ -252,13 +259,24 @@ export const searchFacesByImage = async (
         Bytes: imageBuffer,
       },
       MaxFaces: max,
-      FaceMatchThreshold: rekognitionSettings.similarityThreshold,
+      FaceMatchThreshold: threshold,
     };
 
     const command = new SearchFacesByImageCommand(params);
     const response = await rekognitionClient.send(command);
 
-    return response.FaceMatches ?? [];
+    const matches = response.FaceMatches ?? [];
+    
+    console.log(`[searchFacesByImage] AWS returned:`, {
+      matchesCount: matches.length,
+      matches: matches.map(m => ({
+        externalImageId: m.Face?.ExternalImageId,
+        similarity: m.Similarity,
+        confidence: m.Face?.Confidence
+      }))
+    });
+
+    return matches;
   } catch (error) {
     console.error("Face search failed:", error);
     throw new Error(`Face search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
