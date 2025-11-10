@@ -1,7 +1,7 @@
 # SkyHR API Documentation - LLM Optimized
 
-**Document Version**: v1.4.0  
-**Last Updated**: December 2024  
+**Document Version**: v1.5.0  
+**Last Updated**: January 2025  
 **Optimization Target**: Large Language Model (LLM) consumption and code generation
 
 This documentation is specifically structured for optimal LLM consumption with:
@@ -66,6 +66,8 @@ This documentation is specifically structured for optimal LLM consumption with:
 - `GET /organizations/:organizationId` - Get organization details
 - `GET /organizations/:organizationId/settings` - Get organization settings
 - `PUT /organizations/:organizationId/settings` - Update organization settings
+- `GET /organizations/:organizationId/invitations/by-email` - Get a specific invitation by email
+- `GET /organizations/invitations/status` - Public invitation status lookup by email
 
 ### Geofence Endpoints
 - `POST /geofence/create` - Create a new geofence with QR code
@@ -103,6 +105,17 @@ This documentation is specifically structured for optimal LLM consumption with:
 - `GET /announcements/:id` - Get a specific announcement by ID
 - `PUT /announcements/:id` - Update an existing announcement (Admin only)
 - `DELETE /announcements/:id` - Soft delete an announcement (Admin only)
+
+### Permissions (Leave/Vacation Requests) Endpoints
+- `POST /permissions` - Create a new permission request (with optional single document)
+- `GET /permissions` - List permissions (filtered by user role)
+- `GET /permissions/pending` - List pending requests (Admin/Owner only)
+- `GET /permissions/:id` - Get a specific permission by ID
+- `PUT /permissions/:id` - Update own pending permission
+- `DELETE /permissions/:id` - Cancel own pending permission
+- `POST /permissions/:id/approve` - Approve permission request (Admin/Owner only)
+- `POST /permissions/:id/reject` - Reject permission request with comment (Admin/Owner only)
+- `POST /permissions/:id/documents` - Upload additional documents to permission
 
 ---
 
@@ -504,6 +517,81 @@ Content-Type: application/json
 **Response 400**: Invalid grace_period_minutes (must be 0-60) or missing organization ID
 
 **Response 403**: Unauthorized to update this organization's settings
+
+#### GET /organizations/:organizationId/invitations/by-email
+
+**Description**: Fetch a single invitation that belongs to an organization and matches the provided email (case-insensitive). Useful for checking whether a user already has a pending invite before sending another or for client-side validation flows.
+
+**Authentication**: requireAuth, requireOrganization
+
+**Query Parameters**:
+- `email` *(string, required)*: Email address to search for. Must be a valid email format.
+
+**Request**:
+```
+GET /organizations/org-123/invitations/by-email?email=jane.doe%40example.com
+```
+
+**Response 200**:
+```json
+{
+  "message": "Invitation retrieved successfully",
+  "data": {
+    "id": "inv-789",
+    "organizationId": "org-123",
+    "email": "jane.doe@example.com",
+    "role": "member",
+    "status": "pending",
+    "expiresAt": "2024-12-01T00:00:00.000Z",
+    "inviterId": "user-456",
+    "teamId": null
+  }
+}
+```
+
+**Response 400**: Missing organizationId or email, or invalid email format.
+
+**Response 403**: Authenticated member does not belong to the requested organization.
+
+**Response 404**: No invitation exists for that email within the organization.
+
+#### GET /organizations/invitations/status
+
+**Description**: Public endpoint used by onboarding flows to confirm whether an invitation email currently has a pending organization invite. Does not reveal organization identifiers or inviter details.
+
+**Authentication**: None (Public)
+
+**Query Parameters**:
+- `email` *(string, required)*: Email address to inspect. Must be a valid email format.
+
+**Request**:
+```
+GET /organizations/invitations/status?email=jane.doe%40example.com
+```
+
+**Response 200 (pending)**:
+```json
+{
+  "message": "Invitation pending",
+  "data": {
+    "status": "pending",
+    "pending": true
+  }
+}
+```
+
+**Response 200 (not found)**:
+```json
+{
+  "message": "Invitation not found",
+  "data": {
+    "status": "not_found",
+    "pending": false
+  }
+}
+```
+
+**Response 400**: Missing/invalid email parameter.
 
 ---
 
@@ -1587,6 +1675,248 @@ DELETE /announcements/uuid-123
 
 ---
 
+### Permissions (Leave/Vacation Requests) Endpoints
+
+#### POST /permissions
+
+**Description**: Create a new permission/leave request with optional single document upload
+
+**Authentication**: requireAuth, requireOrganization
+
+**Request**:
+```
+POST /permissions
+Content-Type: multipart/form-data
+
+FormData:
+- starting_date: string (required) - ISO timestamp
+- end_date: string (required) - ISO timestamp
+- message: string (required) - Reason/motive for request
+- document: File (optional) - Single document (PDF, JPEG, PNG, max 10MB)
+```
+
+**Validation**:
+- `end_date` must be greater than `starting_date`
+- Document must be PDF, JPEG, or PNG
+- Document max size: 10MB
+
+**Response 201**:
+```json
+{
+  "message": "Permission created successfully",
+  "data": {
+    "id": "uuid-123",
+    "userId": "user-123",
+    "organizationId": "org-123",
+    "message": "Family vacation",
+    "documentsUrl": ["https://example.com/doc.pdf"],
+    "startingDate": "2024-03-15T00:00:00.000Z",
+    "endDate": "2024-03-20T23:59:59.999Z",
+    "status": "pending",
+    "approvedBy": null,
+    "supervisorComment": null,
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+**Response 400**: Invalid dates, missing required fields, or invalid file type/size
+
+#### GET /permissions
+
+**Description**: List permissions with filtering and pagination
+
+**Authentication**: requireAuth, requireOrganization
+
+**Query Parameters**:
+- `status`: string (optional) - Filter by "pending", "approved", "rejected"
+- `userId`: string (optional) - Filter by user ID (admin/owner only)
+- `page`: number (optional, default: 1)
+- `pageSize`: number (optional, default: 20, max: 100)
+
+**Authorization**:
+- Employees see only their own permissions
+- Admin/Owner see all permissions in organization
+
+**Response 200**:
+```json
+{
+  "message": "Permissions retrieved successfully",
+  "data": [
+    {
+      "id": "uuid-123",
+      "userId": "user-123",
+      "organizationId": "org-123",
+      "message": "Family vacation",
+      "documentsUrl": ["https://example.com/doc.pdf"],
+      "startingDate": "2024-03-15T00:00:00.000Z",
+      "endDate": "2024-03-20T23:59:59.999Z",
+      "status": "pending",
+      "approvedBy": null,
+      "supervisorComment": null,
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 20,
+    "total": 50,
+    "totalPages": 3
+  }
+}
+```
+
+#### GET /permissions/pending
+
+**Description**: List all pending permission requests (Admin/Owner only)
+
+**Authentication**: requireAuth, requireOrganization, requireRole(['owner', 'admin'])
+
+**Query Parameters**: Same as GET /permissions
+
+**Response 200**: Same format as GET /permissions, filtered to status="pending"
+
+**Response 403**: Access denied - Admin or Owner role required
+
+#### GET /permissions/:id
+
+**Description**: Get a specific permission by ID
+
+**Authentication**: requireAuth, requireOrganization
+
+**Authorization**:
+- Employees can view their own permissions
+- Admin/Owner can view any permission in organization
+
+**Response 200**: Single permission object (same format as list item)
+
+**Response 404**: Permission not found or access denied
+
+#### PUT /permissions/:id
+
+**Description**: Update own pending permission
+
+**Authentication**: requireAuth, requireOrganization
+
+**Request**:
+```json
+{
+  "message": "Updated reason",
+  "starting_date": "2024-03-16T00:00:00.000Z",
+  "end_date": "2024-03-21T23:59:59.999Z"
+}
+```
+
+**Validation**:
+- Only pending permissions can be modified
+- Only the owner or admin/owner can modify
+- `end_date` must be greater than `starting_date`
+
+**Response 200**: Updated permission object
+
+**Response 403**: Cannot modify non-pending permission or not owner
+**Response 404**: Permission not found
+
+#### DELETE /permissions/:id
+
+**Description**: Cancel (soft delete) own pending permission
+
+**Authentication**: requireAuth, requireOrganization
+
+**Behavior**: Sets `deleted_at` timestamp, only pending permissions can be cancelled
+
+**Response 200**: Cancelled permission object
+
+**Response 403**: Cannot cancel non-pending permission
+**Response 404**: Permission not found
+
+#### POST /permissions/:id/approve
+
+**Description**: Approve a permission request (Admin/Owner only)
+
+**Authentication**: requireAuth, requireOrganization, requireRole(['owner', 'admin'])
+
+**Request**:
+```json
+{
+  "comment": "Approved - enjoy your vacation!" // Optional
+}
+```
+
+**Behavior**:
+- Changes status from "pending" to "approved"
+- Sets `approved_by` to current user
+- Only pending permissions can be approved
+
+**Response 200**: Approved permission object
+
+**Response 400**: Permission is not pending
+**Response 404**: Permission not found
+
+#### POST /permissions/:id/reject
+
+**Description**: Reject a permission request with comment (Admin/Owner only)
+
+**Authentication**: requireAuth, requireOrganization, requireRole(['owner', 'admin'])
+
+**Request**:
+```json
+{
+  "comment": "Rejected - insufficient notice period" // Required
+}
+```
+
+**Behavior**:
+- Changes status from "pending" to "rejected"
+- Sets `approved_by` to current user
+- Sets `supervisor_comment` to provided comment
+- Only pending permissions can be rejected
+
+**Response 200**: Rejected permission object
+
+**Response 400**: Permission is not pending or comment missing
+**Response 404**: Permission not found
+
+#### POST /permissions/:id/documents
+
+**Description**: Upload additional documents to existing permission
+
+**Authentication**: requireAuth, requireOrganization
+
+**Request**:
+```
+POST /permissions/:id/documents
+Content-Type: multipart/form-data
+
+FormData:
+- documents: File[] (required) - One or more documents (PDF, JPEG, PNG, max 10MB each)
+```
+
+**Validation**:
+- Only pending permissions can have documents added
+- Only the owner or admin/owner can add documents
+- Allowed types: PDF, JPEG, PNG
+- Max size: 10MB per file
+
+**Response 200**: Updated permission object with new documents
+
+**Response 400**: Invalid file type/size or permission not pending
+**Response 403**: Cannot add documents to this permission
+**Response 404**: Permission not found
+
+**Status Workflow**:
+- `pending` → Can be modified, cancelled, approved, or rejected
+- `approved` → Final state, cannot be modified
+- `rejected` → Final state, cannot be modified
+
+**Authorization Rules**:
+- **Employees (member role)**: Can create, view own, modify own pending, cancel own pending, add documents to own pending
+- **Admin/Owner**: Can view all, approve/reject any, add documents to any pending
+
+---
+
 ## Data Models
 
 ### User Object
@@ -1704,6 +2034,24 @@ DELETE /announcements/uuid-123
   timezone: string; // Default: "UTC"
   created_at: timestamp;
   updated_at: timestamp;
+}
+```
+
+### Permission Object
+```typescript
+{
+  id: uuid;
+  userId: string;
+  organizationId: string;
+  message: string; // Reason/motive for the request
+  documentsUrl: string[]; // Array of document URLs
+  startingDate: timestamp;
+  endDate: timestamp;
+  status: "pending" | "approved" | "rejected";
+  approvedBy: string | null; // User ID of admin/owner who approved/rejected
+  supervisorComment: string | null; // Optional comment from supervisor
+  createdAt: timestamp;
+  updatedAt: timestamp;
 }
 ```
 
@@ -1939,6 +2287,8 @@ Organizations have configurable grace period settings (default: 5 minutes):
 
 ## Change Log
 
+- **v1.4.3**: Added public invitation status endpoint (GET `/organizations/invitations/status`) for unauthenticated email checks.
+- **v1.4.2**: Added organization invitation lookup endpoint (GET `/organizations/:organizationId/invitations/by-email`) with validation/error semantics documented.
 - **v1.4.1**: Documentation updates - Fixed check-out endpoint documentation (removed non-existent optional parameters), added missing organization settings endpoints (GET/PUT `/organizations/:organizationId/settings`)
 - **v1.4.0**: Implemented pagination across all list endpoints (Announcements, Attendance, Geofence, User-Geofence, Schedules). Added reusable pagination utility with consistent query parameters (`page`, `pageSize`) and response metadata. Added bulk attendance generation script for testing.
 - **v1.3.0**: Added Announcements module, Organization Settings, improved attendance validation
@@ -2014,4 +2364,3 @@ This documentation is optimized for LLM consumption with structured schemas, con
 
 **Maintained by**: SkyHR Development Team  
 **Support**: Contact via repository issues or documentation feedback
-

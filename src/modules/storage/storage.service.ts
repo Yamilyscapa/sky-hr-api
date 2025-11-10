@@ -52,9 +52,28 @@ export const uploadQr = (storageAdapter: StorageAdapter) =>
     };
   };
 
+export const uploadPermissionDocument = (storageAdapter: StorageAdapter) =>
+  async (file: File, permissionId: string, documentIndex: number): Promise<{ url: string; fileName: string }> => {
+    if (!permissionId) {
+      throw new Error("Permission ID is required");
+    }
+
+    const type = file.type;
+    const fileExtension = getFileExtension(type);
+    const fileName = generateFileName(permissionId, documentIndex, "permission-document", fileExtension);
+
+    const result = await storageAdapter.uploadFile(file, fileName, type);
+
+    return {
+      url: result.url,
+      fileName: result.key,
+    };
+  };
+
 export const createStorageService = (storageAdapter: StorageAdapter) => ({
   uploadUserFace: uploadUserFace(storageAdapter),
-  uploadQr: uploadQr(storageAdapter)
+  uploadQr: uploadQr(storageAdapter),
+  uploadPermissionDocument: uploadPermissionDocument(storageAdapter)
 });
 
 export type StorageService = ReturnType<typeof createStorageService>;
