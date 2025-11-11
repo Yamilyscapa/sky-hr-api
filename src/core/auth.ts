@@ -6,10 +6,11 @@ import { db } from "../db";
 import { users, accounts, sessions, verificationTokens, organization, member, invitation, team, teamMember } from "../db/schema";
 import { sendEmail } from "../utils/email";
 import { createOrganizationCollection, deleteOrganizationCollection } from "../modules/organizations/organizations.service";
+import { TRUSTED_ORIGINS } from "../utils/cors";
 
 const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
 const BETTER_AUTH_URL = process.env.BETTER_AUTH_URL;
-const TRUSTED_ORIGINS = process.env.TRUSTED_ORIGINS;
+const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN;
 
 export const auth = betterAuth({
   basePath: "/auth", // Especifica que las rutas serán /auth/* en lugar de /api/auth/*
@@ -113,7 +114,7 @@ export const auth = betterAuth({
       sameSite: 'none',
       secure: true,
       // If sharing subdomains instead:
-      // domain: '.example.com',
+      domain: COOKIE_DOMAIN,
       // sameSite: 'lax',
     }  // cross-site cookie
   },
@@ -129,13 +130,7 @@ export const auth = betterAuth({
       },
     },
   },
-  trustedOrigins: TRUSTED_ORIGINS?.split(",") || [
-    "http://localhost:3000", // Web development
-    "https://localhost:3000", // Web development (HTTPS)
-    "skyhr://", // Expo deep link scheme
-    "exp://", // Expo development scheme
-    "exp+skyhr://", // Expo development scheme with custom
-  ],
+  trustedOrigins: TRUSTED_ORIGINS,
   secret: BETTER_AUTH_SECRET,
   baseURL: BETTER_AUTH_URL || "http://localhost:8080",
 });

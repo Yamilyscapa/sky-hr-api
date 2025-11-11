@@ -3,6 +3,7 @@ import { logger } from "hono/logger";
 import router from "./router";
 import { serveStatic } from "hono/serve-static";
 import { cors } from "hono/cors";
+import { TRUSTED_ORIGINS } from "./utils/cors";
 
 // ENV
 const PORT = process.env.PORT ?? 8080;
@@ -10,9 +11,6 @@ const PORT = process.env.PORT ?? 8080;
 // APP
 const app = new Hono();
 
-// TRUSTED ORIGINS
-const TRUSTED_ORIGINS: string[] = process.env.TRUSTED_ORIGINS?.split(",") || [];
-  
 // Middleware
 app.use(logger());
 app.use(cors({
