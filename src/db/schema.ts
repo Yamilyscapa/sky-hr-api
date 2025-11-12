@@ -27,6 +27,12 @@ export const visitorStatusEnum = pgEnum("visitor_status", [
   "approved",
   "rejected",
   "cancelled",
+ ]);
+
+export const permissionStatusEnum = pgEnum("permission_status", [
+  "pending",
+  "approved",
+  "rejected",
 ]);
 
 // Business Module Tables
@@ -160,12 +166,16 @@ export const teamMember = pgTable("team_member", {
 export const permissions = pgTable("permissions", {
   id: uuid("id").primaryKey().defaultRandom(),
   user_id: text("user_id").references(() => users.id),
+  organization_id: text("organization_id").references(() => organization.id),
   message: text("message").notNull(),
-  documents_url: text("documents_url").notNull(),
+  documents_url: text("documents_url").array(),
   starting_date: timestamp("starting_date").notNull(),
   end_date: timestamp("end_date").notNull(),
-  is_approved: boolean("is_approved").notNull().default(false),
+  status: permissionStatusEnum("status").notNull().default("pending"),
+  approved_by: text("approved_by").references(() => users.id),
+  supervisor_comment: text("supervisor_comment"),
   created_at: timestamp("created_at").notNull().defaultNow(),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
   deleted_at: timestamp("deleted_at"),
 });
 
@@ -334,6 +344,7 @@ export const organizationRelations = relations(
     invitations: many(invitation),
     teams: many(team),
     visitors: many(visitors),
+    permissions: many(permissions),
   }),
 );
 
@@ -376,6 +387,15 @@ export const permissionsRelations = relations(permissions, ({ one }) => ({
   user: one(users, {
     fields: [permissions.user_id],
     references: [users.id],
+  }),
+  organization: one(organization, {
+    fields: [permissions.organization_id],
+    references: [organization.id],
+  }),
+  approvedBy: one(users, {
+    fields: [permissions.approved_by],
+    references: [users.id],
+    relationName: "approvedBy",
   }),
 }));
 

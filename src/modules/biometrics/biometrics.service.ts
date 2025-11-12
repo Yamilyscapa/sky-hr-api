@@ -34,9 +34,24 @@ export interface FaceDetectionResult {
       left: number;
       top: number;
     };
+    quality?: {
+      brightness?: number;
+      sharpness?: number;
+    };
     landmarks?: any[];
     attributes?: any;
   }>;
+}
+
+export interface LivenessResult {
+  isLive: boolean;
+  livenessScore: number; // 0-100
+  spoofFlag: boolean;
+  quality: {
+    brightness?: number;
+    sharpness?: number;
+  };
+  reasons?: string[]; // Reasons for spoof detection
 }
 
 export interface FaceIndexResult {
@@ -117,6 +132,10 @@ export const detectFaces = async (imageBuffer: Buffer): Promise<FaceDetectionRes
         left: face.BoundingBox?.Left ?? 0,
         top: face.BoundingBox?.Top ?? 0,
       },
+      quality: {
+        brightness: face.Quality?.Brightness,
+        sharpness: face.Quality?.Sharpness,
+      },
       landmarks: face.Landmarks,
       attributes: {
         ageRange: face.AgeRange,
@@ -137,6 +156,92 @@ export const detectFaces = async (imageBuffer: Buffer): Promise<FaceDetectionRes
   } catch (error) {
     console.error("Face detection failed:", error);
     throw new Error(`Face detection failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
+/**
+ * Detect liveness and potential spoofing using image quality metrics
+ */
+export const detectLiveness = async (imageBuffer: Buffer): Promise<LivenessResult> => {
+  try {
+    const detectionResult = await detectFaces(imageBuffer);
+    
+    // If no faces detected, cannot determine liveness
+    if (detectionResult.faceCount === 0) {
+      return {
+        isLive: false,
+        livenessScore: 0,
+        spoofFlag: true,
+        quality: {},
+        reasons: ["No face detected in image"],
+      };
+    }
+
+    // Use the first (primary) face for liveness detection
+    const primaryFace = detectionResult.faces[0];
+    const brightness = primaryFace.quality?.brightness ?? 0;
+    const sharpness = primaryFace.quality?.sharpness ?? 0;
+    
+    const reasons: string[] = [];
+    let livenessScore = 100;
+    let spoofFlag = false;
+
+    // Check sharpness - low sharpness indicates photo/print
+    if (sharpness < rekognitionSettings.sharpnessThreshold) {
+      const penalty = (rekognitionSettings.sharpnessThreshold - sharpness) * 2;
+      livenessScore -= penalty;
+      spoofFlag = true;
+      reasons.push(`Low sharpness (${sharpness.toFixed(1)}), possible photo/print`);
+    }
+
+    // Check brightness - extreme values suggest photo/print
+    if (brightness < rekognitionSettings.brightnessRange.min) {
+      const penalty = (rekognitionSettings.brightnessRange.min - brightness) * 1.5;
+      livenessScore -= penalty;
+      spoofFlag = true;
+      reasons.push(`Too dark (brightness: ${brightness.toFixed(1)}), possible photo/print`);
+    } else if (brightness > rekognitionSettings.brightnessRange.max) {
+      const penalty = (brightness - rekognitionSettings.brightnessRange.max) * 1.5;
+      livenessScore -= penalty;
+      spoofFlag = true;
+      reasons.push(`Too bright (brightness: ${brightness.toFixed(1)}), possible photo/print`);
+    }
+
+    // Ensure liveness score is within 0-100 range
+    livenessScore = Math.max(0, Math.min(100, livenessScore));
+
+    // Determine if face is considered "live"
+    const isLive = livenessScore >= rekognitionSettings.livenessThreshold && !spoofFlag;
+
+    console.log(`[detectLiveness] Liveness check:`, {
+      isLive,
+      livenessScore: livenessScore.toFixed(1),
+      spoofFlag,
+      brightness: brightness.toFixed(1),
+      sharpness: sharpness.toFixed(1),
+      reasons: reasons.length > 0 ? reasons : ["Passed all quality checks"],
+    });
+
+    return {
+      isLive,
+      livenessScore,
+      spoofFlag,
+      quality: {
+        brightness,
+        sharpness,
+      },
+      reasons: reasons.length > 0 ? reasons : undefined,
+    };
+  } catch (error) {
+    console.error("Liveness detection failed:", error);
+    // On error, be conservative and flag as potential spoof
+    return {
+      isLive: false,
+      livenessScore: 0,
+      spoofFlag: true,
+      quality: {},
+      reasons: [`Liveness detection error: ${error instanceof Error ? error.message : 'Unknown error'}`],
+    };
   }
 };
 
@@ -245,6 +350,13 @@ export const searchFacesByImage = async (
   try {
     const collection = collectionId ?? rekognitionSettings.collectionId;
     const max = maxFaces ?? rekognitionSettings.maxFaces;
+    const threshold = rekognitionSettings.similarityThreshold;
+
+    console.log(`[searchFacesByImage] Searching with:`, {
+      collection,
+      maxFaces: max,
+      faceMatchThreshold: threshold
+    });
 
     const params: SearchFacesByImageCommandInput = {
       CollectionId: collection,
@@ -252,13 +364,24 @@ export const searchFacesByImage = async (
         Bytes: imageBuffer,
       },
       MaxFaces: max,
-      FaceMatchThreshold: rekognitionSettings.similarityThreshold,
+      FaceMatchThreshold: threshold,
     };
 
     const command = new SearchFacesByImageCommand(params);
     const response = await rekognitionClient.send(command);
 
-    return response.FaceMatches ?? [];
+    const matches = response.FaceMatches ?? [];
+    
+    console.log(`[searchFacesByImage] AWS returned:`, {
+      matchesCount: matches.length,
+      matches: matches.map(m => ({
+        externalImageId: m.Face?.ExternalImageId,
+        similarity: m.Similarity,
+        confidence: m.Face?.Confidence
+      }))
+    });
+
+    return matches;
   } catch (error) {
     console.error("Face search failed:", error);
     throw new Error(`Face search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -426,6 +549,7 @@ export const testConnection = async (): Promise<boolean> => {
 export const biometricsService = {
   compareFaces,
   detectFaces,
+  detectLiveness,
   indexFace,
   indexFaceForOrganization,
   indexFaceForOrganizationWithEnsure,

@@ -3,10 +3,22 @@ import { writeFile } from 'fs/promises';
 import path from 'path';
 import type { StorageAdapter, UploadResult, CreateStorageAdapter } from "./storage-interface";
 import { ensureUploadDir, generateFileName, isValidFileType } from "../../../config/multer";
+import { storagePolicies } from "../../storage/storage.policies";
 
 const validateMulterConfig = () => {
   const baseUrl = process.env.BASE_URL || "http://localhost:3000";
   return { baseUrl };
+};
+
+const isValidFileTypeForUpload = (contentType: string, fileName: string): boolean => {
+  // Check if this is a permission document based on filename pattern
+  if (fileName.includes('permission-document')) {
+    const policies = storagePolicies();
+    return policies.permissionDocument.allowedTypes.includes(contentType);
+  }
+  
+  // For other file types (user faces, QR codes), use the existing validation
+  return isValidFileType(contentType);
 };
 
 const uploadFileToLocal = async (
@@ -16,8 +28,11 @@ const uploadFileToLocal = async (
   baseUrl: string
 ): Promise<UploadResult> => {
   try {
-    // Validate file type
-    if (!isValidFileType(contentType)) {
+    // Validate file type based on context
+    if (!isValidFileTypeForUpload(contentType, fileName)) {
+      if (fileName.includes('permission-document')) {
+        throw new Error('File type not allowed. Only images and PDF are supported for permission documents.');
+      }
       throw new Error('File type not allowed. Only images and videos are supported.');
     }
 

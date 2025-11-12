@@ -17,6 +17,7 @@ export type CreateAttendanceEventArgs = {
   latitude?: string | null;
   longitude?: string | null;
   faceConfidence?: string | null;
+  livenessScore?: string | null;
   spoofFlag?: boolean;
   notes?: string | null;
 };
@@ -246,6 +247,7 @@ export async function createAttendanceEvent(args: CreateAttendanceEventArgs) {
     latitude,
     longitude,
     faceConfidence,
+    livenessScore,
     spoofFlag,
     notes,
   } = args;
@@ -267,7 +269,7 @@ export async function createAttendanceEvent(args: CreateAttendanceEventArgs) {
       longitude: longitude ?? null,
       distance_to_geofence_m: distanceToGeofence ?? null,
       face_confidence: faceConfidence ?? null,
-      liveness_score: null,
+      liveness_score: livenessScore ?? null,
       spoof_flag: spoofFlag ?? false,
       notes: notes ?? null,
     })

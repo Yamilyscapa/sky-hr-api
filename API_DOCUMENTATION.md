@@ -539,6 +539,178 @@ Service Functions:
 - `findActiveGeofence(locationId, orgId)`: Queries for active geofence
 - `createAttendanceEvent(args)`: Inserts attendance record with all metadata
 
+### Permissions (Leave/Vacation Requests)
+Base path: `/permissions`
+
+The Permissions module manages employee leave and vacation requests with supervisor approval workflow. Employees can submit requests with dates, reason, and supporting documents. Admin/Owner roles can approve, reject, and add comments.
+
+- POST `/permissions`
+  - Auth: `requireAuth`, `requireOrganization`
+  - FormData or JSON:
+    - `starting_date`: string (required) - ISO timestamp for start of leave
+    - `end_date`: string (required) - ISO timestamp for end of leave
+    - `message`: string (required) - Reason/motive for the request
+    - `document`: File (optional) - Single supporting document (PDF, JPEG, PNG, max 10MB)
+  - Behavior:
+    - Creates a new permission request with status "pending"
+    - Validates that end_date > starting_date
+    - If document provided, uploads it and links to permission
+    - Automatically sets user_id and organization_id from context
+  - Response 201:
+    ```json
+    {
+      "message": "Permission created successfully",
+      "data": {
+        "id": "uuid",
+        "userId": "string",
+        "organizationId": "string",
+        "message": "string",
+        "documentsUrl": ["string"],
+        "startingDate": "timestamp",
+        "endDate": "timestamp",
+        "status": "pending",
+        "approvedBy": null,
+        "supervisorComment": null,
+        "createdAt": "timestamp",
+        "updatedAt": "timestamp"
+      }
+    }
+    ```
+  - Response 400: Invalid dates, missing required fields, or invalid file type/size
+
+- GET `/permissions`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Query Parameters:
+    - `status`: string (optional) - Filter by status: "pending", "approved", "rejected"
+    - `userId`: string (optional) - Filter by user ID (admin/owner only)
+    - `page`: number (optional) - Page number for pagination
+    - `pageSize`: number (optional) - Items per page (max 100)
+  - Behavior:
+    - Employees see only their own permissions
+    - Admin/Owner see all permissions in organization
+    - Results ordered by creation date (newest first)
+  - Response 200:
+    ```json
+    {
+      "message": "Permissions retrieved successfully",
+      "data": [
+        {
+          "id": "uuid",
+          "userId": "string",
+          "organizationId": "string",
+          "message": "string",
+          "documentsUrl": ["string"],
+          "startingDate": "timestamp",
+          "endDate": "timestamp",
+          "status": "pending" | "approved" | "rejected",
+          "approvedBy": "string | null",
+          "supervisorComment": "string | null",
+          "createdAt": "timestamp",
+          "updatedAt": "timestamp"
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "pageSize": 20,
+        "total": 50,
+        "totalPages": 3
+      }
+    }
+    ```
+
+- GET `/permissions/pending`
+  - Auth: `requireAuth`, `requireOrganization`, `requireRole(["admin", "owner"])`
+  - Query Parameters:
+    - `page`: number (optional) - Page number for pagination
+    - `pageSize`: number (optional) - Items per page (max 100)
+  - Behavior: Returns all pending permission requests for the organization
+  - Response 200: Same format as GET `/permissions` but filtered to status="pending"
+
+- GET `/permissions/:id`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Behavior:
+    - Employees can view their own permissions
+    - Admin/Owner can view any permission in organization
+  - Response 200: Single permission object (same format as list item)
+  - Response 404: Permission not found or access denied
+
+- PUT `/permissions/:id`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON:
+    - `message`: string (optional) - Updated reason
+    - `starting_date`: string (optional) - Updated start date
+    - `end_date`: string (optional) - Updated end date
+  - Behavior:
+    - Only pending permissions can be modified
+    - Only the owner of the permission or admin/owner can modify
+    - Validates date constraints
+  - Response 200: Updated permission object
+  - Response 403: Cannot modify non-pending permission or not owner
+  - Response 404: Permission not found
+
+- DELETE `/permissions/:id`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Behavior:
+    - Soft deletes (sets deleted_at) the permission
+    - Only pending permissions can be cancelled
+    - Only the owner or admin/owner can cancel
+  - Response 200: Cancelled permission object
+  - Response 403: Cannot cancel non-pending permission
+  - Response 404: Permission not found
+
+- POST `/permissions/:id/approve`
+  - Auth: `requireAuth`, `requireOrganization`, `requireRole(["admin", "owner"])`
+  - JSON:
+    - `comment`: string (optional) - Optional comment from supervisor
+  - Behavior:
+    - Changes status from "pending" to "approved"
+    - Sets approved_by to current user
+    - Only pending permissions can be approved
+  - Response 200: Approved permission object
+  - Response 400: Permission is not pending
+  - Response 404: Permission not found
+
+- POST `/permissions/:id/reject`
+  - Auth: `requireAuth`, `requireOrganization`, `requireRole(["admin", "owner"])`
+  - JSON:
+    - `comment`: string (required) - Rejection reason/comment
+  - Behavior:
+    - Changes status from "pending" to "rejected"
+    - Sets approved_by to current user
+    - Sets supervisor_comment to provided comment
+    - Only pending permissions can be rejected
+  - Response 200: Rejected permission object
+  - Response 400: Permission is not pending or comment missing
+  - Response 404: Permission not found
+
+- POST `/permissions/:id/documents`
+  - Auth: `requireAuth`, `requireOrganization`
+  - FormData:
+    - `documents`: File[] (required) - One or more supporting documents (PDF, JPEG, PNG, max 10MB each)
+  - Behavior:
+    - Adds additional documents to existing permission
+    - Only pending permissions can have documents added
+    - Only the owner or admin/owner can add documents
+  - Response 200: Updated permission object with new documents
+  - Response 400: Invalid file type/size or permission not pending
+  - Response 403: Cannot add documents to this permission
+  - Response 404: Permission not found
+
+**File Upload Constraints:**
+- Allowed types: `application/pdf`, `image/png`, `image/jpeg`, `image/jpg`
+- Max file size: 10MB per file
+- Single document allowed during creation
+- Multiple documents can be added later via `/documents` endpoint
+
+**Status Workflow:**
+- `pending` → Can be modified, cancelled, approved, or rejected
+- `approved` → Final state, cannot be modified
+- `rejected` → Final state, cannot be modified
+
+**Authorization Rules:**
+- Employees (member role): Can create, view own, modify own pending, cancel own pending
+- Admin/Owner: Can view all, approve/reject any, add documents to any pending
+
 ## Data Model Highlights
 
 ### Core Tables
@@ -617,9 +789,18 @@ Service Functions:
   - `timezone: text` - Organization timezone (default: UTC)
 
 - **`permissions`**: Leave/permission requests
-  - `documents_url: text` - Supporting documents
-  - `starting_date/end_date` - Permission date range
-  - `is_approved: boolean` - Approval status
+  - `user_id: text` - User requesting permission
+  - `organization_id: text` - Organization context
+  - `message: text` - Reason/motive for the request
+  - `documents_url: text[]` - Array of supporting document URLs
+  - `starting_date: timestamp` - Start date of leave/vacation
+  - `end_date: timestamp` - End date of leave/vacation
+  - `status: permission_status` - Enum: "pending", "approved", "rejected"
+  - `approved_by: text` - User ID of admin/owner who approved/rejected
+  - `supervisor_comment: text` - Optional comment from supervisor
+  - `created_at: timestamp` - Creation timestamp
+  - `updated_at: timestamp` - Last update timestamp
+  - `deleted_at: timestamp` - Soft delete timestamp
 
 - **`announcement`**: Organization announcements
   - `scope: text` - "all", "team", "department", "specific_users"
@@ -821,8 +1002,8 @@ Tables with `deleted_at: timestamp` field support soft deletion:
 - Attendance status calculation (on_time, late, etc.) may need shift context
 
 **3. Organization & Teams**
+- ✅ Permission/leave request endpoints implemented
 - Announcement endpoints not implemented (schema exists)
-- Permission/leave request endpoints not implemented (schema exists)
 - No organization subscription enforcement (max_users not checked)
 - Team functionality incomplete (no team-specific routes)
 
@@ -996,6 +1177,7 @@ Tables with `deleted_at: timestamp` field support soft deletion:
 - Custom obfuscation module
 
 ## Changelog
+- v1.5.0: Added Permissions module - Complete leave/vacation request system with document uploads, supervisor approval workflow, status management (pending/approved/rejected), and role-based access control
 - v1.4.1: Documentation updates - Fixed check-out endpoint documentation (removed non-existent optional parameters), added missing organization settings endpoints (GET/PUT `/organizations/:organizationId/settings`)
 - v1.2.0: Added Schedules module (shift management), User-Geofence module, Check-out functionality, Attendance reports, comprehensive documentation update with all endpoints
 - v1.1.0: Added Geofence module, refactored Attendance to controller/service pattern, comprehensive documentation update

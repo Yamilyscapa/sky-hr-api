@@ -22,7 +22,7 @@ export default rekognitionClient;
 
 export const rekognitionSettings = {
   // Face comparison threshold (0-100, higher = more strict)
-  similarityThreshold: 80,
+  similarityThreshold: 90,
   
   // Face detection confidence threshold (0-100)
   faceDetectionConfidence: 90,
@@ -41,6 +41,14 @@ export const rekognitionSettings = {
   
   // Collection settings (if using face collections)
   collectionId: process.env.REKOGNITION_COLLECTION_ID ?? "skyhr-faces",
+  
+  // Liveness detection thresholds
+  livenessThreshold: 50, // Minimum liveness score (0-100)
+  sharpnessThreshold: 50, // Minimum sharpness for live face detection
+  brightnessRange: {
+    min: 20, // Minimum acceptable brightness
+    max: 80, // Maximum acceptable brightness
+  },
 };
 
 // Helper function to validate required environment variables
