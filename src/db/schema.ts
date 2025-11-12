@@ -22,6 +22,13 @@ export const announcementPriorityEnum = pgEnum("announcement_priority", [
   "urgent",
 ]);
 
+export const visitorStatusEnum = pgEnum("visitor_status", [
+  "pending",
+  "approved",
+  "rejected",
+  "cancelled",
+ ]);
+
 export const permissionStatusEnum = pgEnum("permission_status", [
   "pending",
   "approved",
@@ -289,6 +296,27 @@ export const announcement_teams = pgTable("announcement_teams", {
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Visitors Module
+export const visitors = pgTable("visitors", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organization_id: text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  access_areas: text("access_areas").notNull(),
+  entry_date: timestamp("entry_date").notNull(),
+  exit_date: timestamp("exit_date").notNull(),
+  status: visitorStatusEnum("status").notNull().default("pending"),
+  approved_by_user_id: text("approved_by_user_id").references(() => users.id),
+  approved_at: timestamp("approved_at"),
+  created_by_user_id: text("created_by_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  qr_token: text("qr_token").notNull().unique(),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Relations
 export const subscriptionRelations = relations(subscription, ({ many }) => ({
   organizations: many(organization),
@@ -315,6 +343,7 @@ export const organizationRelations = relations(
     members: many(member),
     invitations: many(invitation),
     teams: many(team),
+    visitors: many(visitors),
     permissions: many(permissions),
   }),
 );
@@ -331,6 +360,8 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   memberships: many(member),
   sentInvitations: many(invitation),
   teamMemberships: many(teamMember),
+  visitorsCreated: many(visitors),
+  visitorsApproved: many(visitors),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -437,6 +468,21 @@ export const announcementTeamsRelations = relations(announcement_teams, ({ one }
   team: one(team, {
     fields: [announcement_teams.team_id],
     references: [team.id],
+  }),
+}));
+
+export const visitorsRelations = relations(visitors, ({ one }) => ({
+  organization: one(organization, {
+    fields: [visitors.organization_id],
+    references: [organization.id],
+  }),
+  createdBy: one(users, {
+    fields: [visitors.created_by_user_id],
+    references: [users.id],
+  }),
+  approvedBy: one(users, {
+    fields: [visitors.approved_by_user_id],
+    references: [users.id],
   }),
 }));
 

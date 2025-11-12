@@ -29,4 +29,4 @@ organizationsRouter.get("/:organizationId/invitations/by-email", requireAuth, re
 organizationsRouter.get("/:organizationId/settings", requireAuth, requireOrganization, getSettings);
 organizationsRouter.put("/:organizationId/settings", requireAuth, requireOrganization, updateSettings);
 
-export default organizationsRouter;
+export default organizationsRouter; 
