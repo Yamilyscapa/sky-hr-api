@@ -64,6 +64,13 @@
       "when": 1762474487109,
       "tag": "0008_motionless_mister_fear",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1762805103044,
+      "tag": "0009_tough_wraith",
+      "breakpoints": true
     }
   ]
 }

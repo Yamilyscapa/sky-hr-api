@@ -23,4 +23,4 @@ organizationsRouter.post("/:organizationId/ensure-collection", ensureCollection)
 organizationsRouter.get("/:organizationId/settings", requireAuth, requireOrganization, getSettings);
 organizationsRouter.put("/:organizationId/settings", requireAuth, requireOrganization, updateSettings);
 
-export default organizationsRouter;
+export default organizationsRouter; 
