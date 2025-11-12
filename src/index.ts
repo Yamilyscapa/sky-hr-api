@@ -13,12 +13,38 @@ const app = new Hono();
 
 // Middleware
 app.use(logger());
-app.use(cors({
-  origin: TRUSTED_ORIGINS,
-  allowHeaders: ["Authorization", "Content-Type", "Cookie"],
-  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  credentials: true,
-}));
+
+// CORS configuration for auth routes (must be registered before routes)
+// Following Better Auth Hono integration best practices
+// Reference: https://www.better-auth.com/docs/integrations/hono
+// Note: When credentials: true, origin cannot be "*" - must be specific origins
+// If TRUSTED_ORIGINS is empty, echo back the requesting origin (permissive for development)
+app.use(
+  "/auth/*",
+  cors({
+    origin: TRUSTED_ORIGINS.length > 0 
+      ? TRUSTED_ORIGINS 
+      : (origin) => origin, // Echo back origin when TRUSTED_ORIGINS is empty (allows any origin)
+    allowHeaders: ["Content-Type", "Authorization", "Cookie", "X-Requested-With"],
+    allowMethods: ["POST", "GET", "OPTIONS", "PUT", "DELETE"],
+    exposeHeaders: ["Content-Length", "Set-Cookie"],
+    maxAge: 600,
+    credentials: true,
+  })
+);
+
+// Global CORS for other routes
+// Reference: https://hono.dev/docs/middleware/builtin/cors
+app.use(
+  cors({
+    origin: TRUSTED_ORIGINS.length > 0 
+      ? TRUSTED_ORIGINS 
+      : (origin) => origin, // Echo back origin when TRUSTED_ORIGINS is empty (allows any origin)
+    allowHeaders: ["Authorization", "Content-Type", "Cookie"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+  })
+);
   
 // Router
 app.route("/", router);
