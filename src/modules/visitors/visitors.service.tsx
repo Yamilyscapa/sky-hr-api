@@ -68,7 +68,7 @@ export type CreateInput = {
   organizationId: string;
   userId: string;
   name: string;
-  accessAreas: string;
+  accessAreas: string[];
   entryDate: Date;
   exitDate: Date;
   approveNow?: boolean;
@@ -98,7 +98,7 @@ export async function createVisitor(input: CreateInput) {
       // Generar un token único temporal mientras se conecta el flujo real de QR
       qr_token: randomUUID(),
       name: String(name),
-      access_areas: String(accessAreas ?? ""),
+      access_areas: accessAreas,
       entry_date: new Date(entryDate),
       exit_date: new Date(exitDate),
       status,

@@ -303,7 +303,7 @@ export const visitors = pgTable("visitors", {
     .notNull()
     .references(() => organization.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  access_areas: text("access_areas").notNull(),
+  access_areas: text("access_areas").array().notNull(),
   entry_date: timestamp("entry_date").notNull(),
   exit_date: timestamp("exit_date").notNull(),
   status: visitorStatusEnum("status").notNull().default("pending"),
