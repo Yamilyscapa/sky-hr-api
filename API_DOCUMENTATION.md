@@ -1,7 +1,7 @@
 # SkyHR API Documentation
 
 ## Overview
-The SkyHR API is built on Hono (Bun runtime). It exposes modules for health checks, authentication (via Better Auth), storage, biometrics (AWS Rekognition), organizations, geofence, QR workflows, and attendance. Base app mounts all routes at `/`.
+The SkyHR API is built on Hono (Bun runtime). It exposes modules for health checks, authentication (via Better Auth), storage, biometrics (AWS Rekognition), organizations, geofence, QR workflows, attendance, schedules, announcements, permissions, and visitors. Base app mounts all routes at `/`.
 
 **Architecture**: Follows Functional Programming principles with separation between controllers (HTTP handlers) and services (business logic).
 
@@ -711,6 +711,178 @@ The Permissions module manages employee leave and vacation requests with supervi
 - Employees (member role): Can create, view own, modify own pending, cancel own pending
 - Admin/Owner: Can view all, approve/reject any, add documents to any pending
 
+### Visitors
+Base path: `/visitors`
+
+The Visitors module manages visitor access requests for organizations. Employees can create visitor requests with access areas and entry/exit dates. Admin/Owner roles can approve or reject visitor requests.
+
+- POST `/visitors`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON:
+    ```json
+    {
+      "name": "string (required)",
+      "accessAreas": "string[] (required, unique, non-empty)",
+      "entryDate": "string (required, ISO timestamp)",
+      "exitDate": "string (required, ISO timestamp)",
+      "approveNow": "boolean (optional, default: false)"
+    }
+    ```
+  - Behavior:
+    - Creates a new visitor request with status "pending"
+    - Validates that entryDate <= exitDate
+    - If `approveNow` is true and user is admin/owner, automatically approves the visitor
+    - Generates a unique QR token for the visitor
+    - Normalizes accessAreas to lowercase and trims whitespace
+    - Validates accessAreas array is unique (no duplicates)
+  - Response 201:
+    ```json
+    {
+      "message": "Visitor created",
+      "data": {
+        "id": "uuid",
+        "organization_id": "string",
+        "name": "string",
+        "access_areas": ["string"],
+        "entry_date": "timestamp",
+        "exit_date": "timestamp",
+        "status": "pending" | "approved",
+        "approved_by_user_id": "string | null",
+        "approved_at": "timestamp | null",
+        "created_by_user_id": "string",
+        "qr_token": "string",
+        "created_at": "timestamp",
+        "updated_at": "timestamp"
+      }
+    }
+    ```
+  - Response 400: Missing required fields, invalid dates, duplicate accessAreas, or entryDate > exitDate
+
+- GET `/visitors`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Query Parameters:
+    - `status`: string (optional) - Filter by status: "pending", "approved", "rejected", "cancelled"
+    - `q`: string (optional) - Search query (searches name and access_areas)
+    - `page`: number (optional, default: 1) - Page number for pagination
+    - `pageSize`: number (optional, default: 20, max: 50) - Items per page
+  - Behavior:
+    - Returns all visitors for the organization
+    - Results ordered by entry_date ascending
+    - Supports text search across name and access_areas fields
+  - Response 200:
+    ```json
+    {
+      "message": "Visitors retrieved",
+      "data": [
+        {
+          "id": "uuid",
+          "organization_id": "string",
+          "name": "string",
+          "access_areas": ["string"],
+          "entry_date": "timestamp",
+          "exit_date": "timestamp",
+          "status": "pending" | "approved" | "rejected" | "cancelled",
+          "approved_by_user_id": "string | null",
+          "approved_at": "timestamp | null",
+          "created_by_user_id": "string",
+          "qr_token": "string",
+          "created_at": "timestamp",
+          "updated_at": "timestamp"
+        }
+      ],
+      "meta": {
+        "page": 1,
+        "pageSize": 20,
+        "total": 50
+      }
+    }
+    ```
+
+- GET `/visitors/:id`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Response 200: Single visitor object (same format as list item)
+  - Response 404: Visitor not found
+
+- PUT `/visitors/:id`
+  - Auth: `requireAuth`, `requireOrganization`
+  - JSON:
+    ```json
+    {
+      "name": "string (optional)",
+      "accessAreas": "string[] (optional, unique, non-empty)",
+      "entryDate": "string (optional, ISO timestamp)",
+      "exitDate": "string (optional, ISO timestamp)"
+    }
+    ```
+  - Behavior:
+    - Only the creator or admin/owner can update
+    - Cannot update cancelled visitors
+    - Validates entryDate <= exitDate if both provided
+    - Normalizes accessAreas to lowercase and trims whitespace
+  - Response 200: Updated visitor object
+  - Response 400: Invalid dates or duplicate accessAreas
+  - Response 403: Not authorized to update this visitor
+  - Response 404: Visitor not found
+
+- POST `/visitors/:id/approve`
+  - Auth: `requireAuth`, `requireOrganization`, `requireRole(["owner", "admin"])`
+  - Behavior:
+    - Changes status from "pending" to "approved"
+    - Sets approved_by_user_id to current user
+    - Sets approved_at to current timestamp
+    - If already approved, returns existing record
+  - Response 200: Approved visitor object
+  - Response 404: Visitor not found
+
+- POST `/visitors/:id/reject`
+  - Auth: `requireAuth`, `requireOrganization`, `requireRole(["owner", "admin"])`
+  - Behavior:
+    - Changes status to "rejected"
+    - Clears approved_by_user_id and approved_at
+  - Response 200: Rejected visitor object
+  - Response 404: Visitor not found
+
+- POST `/visitors/:id/cancel`
+  - Auth: `requireAuth`, `requireOrganization`
+  - Behavior:
+    - Only the creator or admin/owner can cancel
+    - Changes status to "cancelled"
+    - If already cancelled, returns existing record
+  - Response 200: Cancelled visitor object
+  - Response 403: Not authorized to cancel this visitor
+  - Response 404: Visitor not found
+
+Visitor Object:
+```json
+{
+  "id": "uuid",
+  "organization_id": "string",
+  "name": "string",
+  "access_areas": ["string"],
+  "entry_date": "timestamp",
+  "exit_date": "timestamp",
+  "status": "pending" | "approved" | "rejected" | "cancelled",
+  "approved_by_user_id": "string | null",
+  "approved_at": "timestamp | null",
+  "created_by_user_id": "string",
+  "qr_token": "string (unique)",
+  "created_at": "timestamp",
+  "updated_at": "timestamp"
+}
+```
+
+**Status Workflow:**
+- `pending` → Can be modified, cancelled, approved, or rejected
+- `approved` → Final state, cannot be modified
+- `rejected` → Final state, cannot be modified
+- `cancelled` → Final state, cannot be modified
+
+**Authorization Rules:**
+- Any authenticated member: Can create visitors, view all visitors in organization
+- Creator or Admin/Owner: Can update pending visitors
+- Admin/Owner: Can approve or reject any visitor
+- Creator or Admin/Owner: Can cancel visitors
+
 ## Data Model Highlights
 
 ### Core Tables
@@ -802,6 +974,21 @@ The Permissions module manages employee leave and vacation requests with supervi
   - `updated_at: timestamp` - Last update timestamp
   - `deleted_at: timestamp` - Soft delete timestamp
 
+- **`visitors`**: Visitor access requests
+  - `id: uuid` - Unique visitor identifier
+  - `organization_id: text` - Organization context
+  - `name: text` - Visitor's name
+  - `access_areas: text[]` - Array of access area names (normalized to lowercase)
+  - `entry_date: timestamp` - Scheduled entry date/time
+  - `exit_date: timestamp` - Scheduled exit date/time
+  - `status: visitor_status` - Enum: "pending", "approved", "rejected", "cancelled"
+  - `approved_by_user_id: text` - User ID of admin/owner who approved
+  - `approved_at: timestamp` - Approval timestamp
+  - `created_by_user_id: text` - User who created the visitor request
+  - `qr_token: text` - Unique QR token for visitor access
+  - `created_at: timestamp` - Creation timestamp
+  - `updated_at: timestamp` - Last update timestamp
+
 - **`announcement`**: Organization announcements
   - `scope: text` - "all", "team", "department", "specific_users"
   - `category: text` - Announcement category
@@ -810,6 +997,8 @@ The Permissions module manages employee leave and vacation requests with supervi
 ### Soft Deletes
 Tables with `deleted_at: timestamp` field support soft deletion:
 - `users`, `geofence`, `attendance_event`, `permissions`, `announcement`
+
+Note: `visitors` uses status-based cancellation instead of soft deletes.
 
 ## Capabilities & Features
 
@@ -1177,6 +1366,7 @@ Tables with `deleted_at: timestamp` field support soft deletion:
 - Custom obfuscation module
 
 ## Changelog
+- v1.6.0: Added Visitors module - Complete visitor access request system with access area management, entry/exit date scheduling, approval workflow (pending/approved/rejected/cancelled), QR token generation, and role-based access control
 - v1.5.0: Added Permissions module - Complete leave/vacation request system with document uploads, supervisor approval workflow, status management (pending/approved/rejected), and role-based access control
 - v1.4.1: Documentation updates - Fixed check-out endpoint documentation (removed non-existent optional parameters), added missing organization settings endpoints (GET/PUT `/organizations/:organizationId/settings`)
 - v1.2.0: Added Schedules module (shift management), User-Geofence module, Check-out functionality, Attendance reports, comprehensive documentation update with all endpoints

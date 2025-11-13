@@ -1,6 +1,6 @@
 # SkyHR API Documentation - LLM Optimized
 
-**Document Version**: v1.5.0  
+**Document Version**: v1.6.0  
 **Last Updated**: January 2025  
 **Optimization Target**: Large Language Model (LLM) consumption and code generation
 
@@ -116,6 +116,15 @@ This documentation is specifically structured for optimal LLM consumption with:
 - `POST /permissions/:id/approve` - Approve permission request (Admin/Owner only)
 - `POST /permissions/:id/reject` - Reject permission request with comment (Admin/Owner only)
 - `POST /permissions/:id/documents` - Upload additional documents to permission
+
+### Visitors Endpoints
+- `POST /visitors` - Create a new visitor request
+- `GET /visitors` - List visitors with filtering and pagination
+- `GET /visitors/:id` - Get a specific visitor by ID
+- `PUT /visitors/:id` - Update a visitor (creator or admin/owner only)
+- `POST /visitors/:id/approve` - Approve visitor request (Admin/Owner only)
+- `POST /visitors/:id/reject` - Reject visitor request (Admin/Owner only)
+- `POST /visitors/:id/cancel` - Cancel visitor request (creator or admin/owner only)
 
 ---
 
@@ -1917,6 +1926,245 @@ FormData:
 
 ---
 
+### Visitors Endpoints
+
+#### POST /visitors
+
+**Description**: Create a new visitor access request
+
+**Authentication**: requireAuth, requireOrganization
+
+**Request**:
+```json
+POST /visitors
+Content-Type: application/json
+
+{
+  "name": "John Doe",
+  "accessAreas": ["main office", "conference room a"],
+  "entryDate": "2024-03-15T09:00:00.000Z",
+  "exitDate": "2024-03-15T17:00:00.000Z",
+  "approveNow": false
+}
+```
+
+**Validation**:
+- `name`: string (required)
+- `accessAreas`: string[] (required, non-empty, unique values)
+- `entryDate`: ISO timestamp (required)
+- `exitDate`: ISO timestamp (required, must be >= entryDate)
+- `approveNow`: boolean (optional, default: false) - Only works if user is admin/owner
+
+**Behavior**:
+- Creates visitor with status "pending" by default
+- If `approveNow` is true and user is admin/owner, automatically approves
+- Generates unique QR token for visitor access
+- Normalizes accessAreas to lowercase and trims whitespace
+- Validates accessAreas array has no duplicates
+
+**Response 201**:
+```json
+{
+  "message": "Visitor created",
+  "data": {
+    "id": "uuid-123",
+    "organization_id": "org-123",
+    "name": "John Doe",
+    "access_areas": ["main office", "conference room a"],
+    "entry_date": "2024-03-15T09:00:00.000Z",
+    "exit_date": "2024-03-15T17:00:00.000Z",
+    "status": "pending",
+    "approved_by_user_id": null,
+    "approved_at": null,
+    "created_by_user_id": "user-456",
+    "qr_token": "unique-qr-token-uuid",
+    "created_at": "2024-01-01T00:00:00.000Z",
+    "updated_at": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+**Response 400**: Missing required fields, invalid dates, duplicate accessAreas, or entryDate > exitDate
+
+#### GET /visitors
+
+**Description**: List visitors with filtering, search, and pagination
+
+**Authentication**: requireAuth, requireOrganization
+
+**Query Parameters**:
+- `status`: string (optional) - Filter by "pending", "approved", "rejected", "cancelled"
+- `q`: string (optional) - Search query (searches name and access_areas fields)
+- `page`: integer (default: 1) - Page number for pagination
+- `pageSize`: integer (default: 20, max: 50) - Items per page
+
+**Request**:
+```
+GET /visitors?status=pending&q=john&page=1&pageSize=20
+```
+
+**Behavior**:
+- Returns all visitors for the organization
+- Results ordered by entry_date ascending
+- Supports case-insensitive text search across name and access_areas
+
+**Response 200**:
+```json
+{
+  "message": "Visitors retrieved",
+  "data": [
+    {
+      "id": "uuid-123",
+      "organization_id": "org-123",
+      "name": "John Doe",
+      "access_areas": ["main office", "conference room a"],
+      "entry_date": "2024-03-15T09:00:00.000Z",
+      "exit_date": "2024-03-15T17:00:00.000Z",
+      "status": "pending",
+      "approved_by_user_id": null,
+      "approved_at": null,
+      "created_by_user_id": "user-456",
+      "qr_token": "unique-qr-token-uuid",
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "updated_at": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "pageSize": 20,
+    "total": 50
+  }
+}
+```
+
+**Response 400**: Invalid pagination parameters
+
+#### GET /visitors/:id
+
+**Description**: Get a specific visitor by ID
+
+**Authentication**: requireAuth, requireOrganization
+
+**Request**:
+```
+GET /visitors/uuid-123
+```
+
+**Response 200**: Single visitor object (same format as list item)
+
+**Response 404**: Visitor not found
+
+#### PUT /visitors/:id
+
+**Description**: Update a visitor request
+
+**Authentication**: requireAuth, requireOrganization
+
+**Request**:
+```json
+PUT /visitors/uuid-123
+Content-Type: application/json
+
+{
+  "name": "Jane Doe",
+  "accessAreas": ["main office"],
+  "entryDate": "2024-03-16T09:00:00.000Z",
+  "exitDate": "2024-03-16T17:00:00.000Z"
+}
+```
+
+**Partial Updates**: Only provide fields you want to update
+
+**Validation**:
+- Only creator or admin/owner can update
+- Cannot update cancelled visitors
+- If both entryDate and exitDate provided, entryDate must be <= exitDate
+- accessAreas normalized to lowercase and trimmed
+
+**Response 200**: Updated visitor object
+
+**Response 400**: Invalid dates or duplicate accessAreas
+
+**Response 403**: Not authorized to update this visitor
+
+**Response 404**: Visitor not found
+
+#### POST /visitors/:id/approve
+
+**Description**: Approve a visitor request (Admin/Owner only)
+
+**Authentication**: requireAuth, requireOrganization, requireRole(['owner', 'admin'])
+
+**Request**:
+```
+POST /visitors/uuid-123/approve
+```
+
+**Behavior**:
+- Changes status from "pending" to "approved"
+- Sets approved_by_user_id to current user
+- Sets approved_at to current timestamp
+- If already approved, returns existing record
+
+**Response 200**: Approved visitor object
+
+**Response 404**: Visitor not found
+
+#### POST /visitors/:id/reject
+
+**Description**: Reject a visitor request (Admin/Owner only)
+
+**Authentication**: requireAuth, requireOrganization, requireRole(['owner', 'admin'])
+
+**Request**:
+```
+POST /visitors/uuid-123/reject
+```
+
+**Behavior**:
+- Changes status to "rejected"
+- Clears approved_by_user_id and approved_at
+
+**Response 200**: Rejected visitor object
+
+**Response 404**: Visitor not found
+
+#### POST /visitors/:id/cancel
+
+**Description**: Cancel a visitor request
+
+**Authentication**: requireAuth, requireOrganization
+
+**Request**:
+```
+POST /visitors/uuid-123/cancel
+```
+
+**Behavior**:
+- Only creator or admin/owner can cancel
+- Changes status to "cancelled"
+- If already cancelled, returns existing record
+
+**Response 200**: Cancelled visitor object
+
+**Response 403**: Not authorized to cancel this visitor
+
+**Response 404**: Visitor not found
+
+**Status Workflow**:
+- `pending` → Can be modified, cancelled, approved, or rejected
+- `approved` → Final state, cannot be modified
+- `rejected` → Final state, cannot be modified
+- `cancelled` → Final state, cannot be modified
+
+**Authorization Rules**:
+- **Any authenticated member**: Can create visitors, view all visitors in organization
+- **Creator or Admin/Owner**: Can update pending visitors
+- **Admin/Owner**: Can approve or reject any visitor
+- **Creator or Admin/Owner**: Can cancel visitors
+
+---
+
 ## Data Models
 
 ### User Object
@@ -2055,6 +2303,25 @@ FormData:
 }
 ```
 
+### Visitor Object
+```typescript
+{
+  id: uuid;
+  organization_id: string;
+  name: string;
+  access_areas: string[]; // Array of access area names (normalized to lowercase)
+  entry_date: timestamp;
+  exit_date: timestamp;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  approved_by_user_id: string | null;
+  approved_at: timestamp | null;
+  created_by_user_id: string;
+  qr_token: string; // Unique QR token for visitor access
+  created_at: timestamp;
+  updated_at: timestamp;
+}
+```
+
 ---
 
 ## Error Responses
@@ -2170,6 +2437,7 @@ Pagination is implemented across all list endpoints using query parameters `page
 - `GET /user-geofence/user-geofences`
 - `GET /user-geofence/geofence-users`
 - `GET /schedules/shifts`
+- `GET /visitors`
 
 ---
 
@@ -2287,6 +2555,7 @@ Organizations have configurable grace period settings (default: 5 minutes):
 
 ## Change Log
 
+- **v1.6.0**: Added Visitors module - Complete visitor access request system with access area management, entry/exit date scheduling, approval workflow (pending/approved/rejected/cancelled), QR token generation, search and filtering, and role-based access control
 - **v1.4.3**: Added public invitation status endpoint (GET `/organizations/invitations/status`) for unauthenticated email checks.
 - **v1.4.2**: Added organization invitation lookup endpoint (GET `/organizations/:organizationId/invitations/by-email`) with validation/error semantics documented.
 - **v1.4.1**: Documentation updates - Fixed check-out endpoint documentation (removed non-existent optional parameters), added missing organization settings endpoints (GET/PUT `/organizations/:organizationId/settings`)

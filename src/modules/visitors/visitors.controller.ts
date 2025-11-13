@@ -53,12 +53,23 @@ export const create = async (c: Context) => {
     const user = c.get("user");
     const role = c.get("role");
     const body = await c.req.json();
+    let { accessAreas }: { accessAreas?: string[] } = body;
+
+    if (accessAreas && accessAreas.length > 0) {
+      const normalizedAccessAreas = (accessAreas.map((area: string) => (area.toLowerCase()).trim()));
+      
+      // Normalize access areas to lowercase and trim whitespace
+      accessAreas = normalizedAccessAreas;
+    } else {
+      accessAreas = [];
+      return errorResponse(c, "accessAreas is required", 400);
+    }
 
     const inserted = await createVisitor({
       organizationId: orgId,
       userId: user.id,
       name: String(body.name),
-      accessAreas: String(body.accessAreas ?? ""),
+      accessAreas: accessAreas,
       entryDate: new Date(body.entryDate),
       exitDate: new Date(body.exitDate),
       approveNow: Boolean(body.approveNow),
@@ -81,6 +92,20 @@ export const update = async (c: Context) => {
     const role = c.get("role");
     const id = c.req.param("id");
     const body = await c.req.json();
+    let { accessAreas } = body;
+
+    if (accessAreas && accessAreas.length > 0) {
+      const normalizedAccessAreas = (accessAreas.map((area: string) => (area.toLowerCase()).trim()));
+      // Check if any area is duplicated
+      if (normalizedAccessAreas.some((area: string) => normalizedAccessAreas.includes(area))) {
+        return errorResponse(c, "accessAreas must be a unique array", 400);
+      }
+      // Normalize access areas to lowercase and trim whitespace
+      accessAreas = normalizedAccessAreas;
+    } else {
+      accessAreas = [];
+      return errorResponse(c, "accessAreas is required", 400);
+    }
 
     const updated = await updateVisitor({
       organizationId: orgId,
@@ -89,7 +114,7 @@ export const update = async (c: Context) => {
       isPrivileged: role === "owner" || role === "admin",
       patch: {
         name: body.name,
-        accessAreas: body.accessAreas,
+        accessAreas: accessAreas,
         entryDate: body.entryDate ? new Date(body.entryDate) : undefined,
         exitDate: body.exitDate ? new Date(body.exitDate) : undefined,
       },
