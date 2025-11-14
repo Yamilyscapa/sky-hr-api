@@ -4,7 +4,7 @@ import { betterAuth } from "better-auth";
 import { expo } from "@better-auth/expo";
 import { db } from "../db";
 import { users, accounts, sessions, verificationTokens, organization, member, invitation, team, teamMember } from "../db/schema";
-import { sendEmail } from "../utils/email";
+import { SendInvitationEmail } from "../utils/email";
 import { createOrganizationCollection, deleteOrganizationCollection } from "../modules/organizations/organizations.service";
 import { TRUSTED_ORIGINS } from "../utils/cors";
 
@@ -22,19 +22,19 @@ const isDevelopment = process.env.NODE_ENV === "development" || !process.env.NOD
 // Better Auth expects cookie configuration in advanced.cookies structure
 const cookieAttributes = isHttps
   ? {
-      secure: true,
-      sameSite: 'none' as const,
-      httpOnly: true,
-      path: '/',
-      ...(COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
-    }
+    secure: true,
+    sameSite: 'none' as const,
+    httpOnly: true,
+    path: '/',
+    ...(COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
+  }
   : {
-      secure: false,
-      sameSite: 'lax' as const,
-      httpOnly: true,
-      path: '/',
-      ...(COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
-    };
+    secure: false,
+    sameSite: 'lax' as const,
+    httpOnly: true,
+    path: '/',
+    ...(COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
+  };
 
 // Build advanced configuration for Better Auth
 const advancedConfig: any = {
@@ -81,18 +81,22 @@ export const auth = betterAuth({
       async sendInvitationEmail(data: any) {
         const appUrl = process.env.APP_URL;
         const token = data.invitation?.id;
-        
+
         if (!token) {
           throw new Error("Invitation token is missing for email invitation.");
         }
 
-        const inviteLink = `${appUrl}/accept-invitation?token=${token}`;
+        const inviteLink: string = `${appUrl}/accept-invitation?token=${token}`;
+        const organizationName: string = data.organization.name;
 
-        await sendEmail(
-          data.email,
-          `Invitación para unirse a ${data.organization?.name ?? "una organización"}`,
-          `<p>Está invitado a unirse a ${data.organization?.name ?? "una organización"}. Haga clic <a href="${inviteLink}">aquí</a> para aceptar la invitación.</p>`
-        );
+        try {
+          await SendInvitationEmail(data.email, inviteLink, organizationName);
+        } catch (error) {
+          console.error(`Error sending invitation email for organization ${organizationName}:`, {
+            error: error instanceof Error ? error.message : String(error),
+            errorStack: error instanceof Error ? error.stack : undefined,
+          });
+        }
       },
       async onInvitationAccepted(data: any) {
         // TODO: Add logic to handle invitation accepted
@@ -104,11 +108,11 @@ export const auth = betterAuth({
             organizationId: organization.id,
             organizationName: organization.name,
           });
-          
+
           try {
             // Directly create Rekognition collection for the new organization
             const collectionId = await createOrganizationCollection(organization.id);
-            
+
             if (collectionId) {
               console.log(`[afterCreateOrganization Hook] Successfully created Rekognition collection ${collectionId} for organization: ${organization.id}`);
             } else {
@@ -127,7 +131,7 @@ export const auth = betterAuth({
           try {
             // Directly delete Rekognition collection for the organization
             const success = await deleteOrganizationCollection(organization.id);
-            
+
             if (success) {
               console.log(`Successfully deleted Rekognition collection for organization: ${organization.id}`);
             } else {
