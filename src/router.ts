@@ -11,6 +11,7 @@ import schedulesRouter from "./modules/schedules/schedules.routes";
 import announcementsRouter from "./modules/announcements/announcements.routes";
 import visitorsRouter from "./modules/visitors/visitors.routes";
 import permissionsRouter from "./modules/permissions/permissions.routes";
+import payroleRouter from "./modules/payrole/payroll.routes";
 
 const router = new Hono();
 
@@ -26,5 +27,6 @@ router.route("/schedules", schedulesRouter);
 router.route("/announcements", announcementsRouter);
 router.route("/visitors", visitorsRouter);
 router.route("/permissions", permissionsRouter);
+router.route("/payroll", payroleRouter);
 
 export default router;

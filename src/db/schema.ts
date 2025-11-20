@@ -6,6 +6,7 @@ import {
   integer,
   uuid,
   pgEnum,
+  doublePrecision,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -71,6 +72,16 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
   // Custom fields for your application
   user_face_url: text("user_face_url").array(),
+  deleted_at: timestamp("deleted_at"),
+});
+
+export const user_payroll = pgTable("user_payroll", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  user_id: text("user_id").references(() => users.id).notNull(),
+  hourly_rate: doublePrecision("hourly_rate").notNull(),
+  overtime_allowed: boolean("overtime_allowed").notNull().default(false),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
   deleted_at: timestamp("deleted_at"),
 });
 
@@ -362,6 +373,17 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   teamMemberships: many(teamMember),
   visitorsCreated: many(visitors),
   visitorsApproved: many(visitors),
+  payroll: one(user_payroll, {
+    fields: [users.id],
+    references: [user_payroll.user_id],
+  }),
+}));
+
+export const userPayrollRelations = relations(user_payroll, ({ one }) => ({
+  user: one(users, {
+    fields: [user_payroll.user_id],
+    references: [users.id],
+  }),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
