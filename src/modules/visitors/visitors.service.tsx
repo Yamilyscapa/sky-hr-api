@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { db } from "../../db";
 import { visitors } from "../../db/schema";
 import { and, between, eq, ilike, or, sql, asc } from "drizzle-orm";
+import { generateAndStoreVisitorQr } from "./visitors.qr";
 
 export type ListParams = {
   organizationId: string;
@@ -28,24 +29,24 @@ export async function listVisitors(params: ListParams) {
 
   const rowsQuery = whereExpr
     ? db
-        .select()
-        .from(visitors)
-        .where(whereExpr)
-        .orderBy(asc(visitors.entry_date))
-        .limit(pageSize)
-        .offset(offset)
+      .select()
+      .from(visitors)
+      .where(whereExpr)
+      .orderBy(asc(visitors.entry_date))
+      .limit(pageSize)
+      .offset(offset)
     : db
-        .select()
-        .from(visitors)
-        .orderBy(asc(visitors.entry_date))
-        .limit(pageSize)
-        .offset(offset);
+      .select()
+      .from(visitors)
+      .orderBy(asc(visitors.entry_date))
+      .limit(pageSize)
+      .offset(offset);
 
   const countQuery = whereExpr
     ? db
-        .select({ count: sql<number>`count(*)` })
-        .from(visitors)
-        .where(whereExpr)
+      .select({ count: sql<number>`count(*)` })
+      .from(visitors)
+      .where(whereExpr)
     : db.select({ count: sql<number>`count(*)` }).from(visitors);
 
   const [rows, countRows] = await Promise.all([rowsQuery, countQuery]);
@@ -107,7 +108,58 @@ export async function createVisitor(input: CreateInput) {
     })
     .returning();
 
+  if (!inserted) {
+    throw new Error("Failed to create visitor");
+  }
+
+  // Generate and store QR code
+  // We don't await this to block the response, but we do want to update the record if successful.
+  // Actually, for consistency, let's await it but catch errors so we don't fail the request.
+  try {
+    const qrUrl = await generateAndStoreVisitorQr({
+      id: inserted.id,
+      organizationId: inserted.organization_id,
+      entryDate: inserted.entry_date,
+      exitDate: inserted.exit_date,
+    });
+
+    if (qrUrl) {
+      await db
+        .update(visitors)
+        .set({ qr_url: qrUrl })
+        .where(eq(visitors.id, inserted.id));
+
+      inserted.qr_url = qrUrl;
+    }
+  } catch (error) {
+    console.error(`Failed to generate QR for visitor ${inserted.id}:`, error);
+    // Continue without failing
+  }
+
   return inserted;
+}
+
+export async function regenerateVisitorQr(organizationId: string, visitorId: string) {
+  const visitor = await getVisitorById(organizationId, visitorId);
+  if (!visitor) throw new Error("Visitor not found");
+
+  const qrUrl = await generateAndStoreVisitorQr({
+    id: visitor.id,
+    organizationId: visitor.organization_id,
+    entryDate: visitor.entry_date,
+    exitDate: visitor.exit_date,
+  });
+
+  if (qrUrl) {
+    const [updated] = await db
+      .update(visitors)
+      .set({ qr_url: qrUrl, updated_at: new Date() })
+      .where(eq(visitors.id, visitorId))
+      .returning();
+    return updated;
+  }
+
+  return visitor;
 }
 
 export type UpdateInput = {
