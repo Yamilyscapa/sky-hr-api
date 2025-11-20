@@ -46,7 +46,7 @@ const validateDeobfuscateObfuscatedQrCodeRequest = (data: any): data is Deobfusc
   return true;
 };
 
-const generateQrCode = async (signedPayload: string): Promise<Buffer> => {
+export const generateQrCode = async (signedPayload: string): Promise<Buffer> => {
   return qrcode.toBuffer(signedPayload, {
     errorCorrectionLevel: "M",
     margin: 2,
@@ -54,7 +54,7 @@ const generateQrCode = async (signedPayload: string): Promise<Buffer> => {
   });
 };
 
-const createFileFromBuffer = (buffer: Buffer, fileName: string, mimeType: string): File => {
+export const createFileFromBuffer = (buffer: Buffer, fileName: string, mimeType: string): File => {
   return new File([buffer], fileName, { type: mimeType });
 };
 

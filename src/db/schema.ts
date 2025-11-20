@@ -313,6 +313,7 @@ export const visitors = pgTable("visitors", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   qr_token: text("qr_token").notNull().unique(),
+  qr_url: text("qr_url"),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });
